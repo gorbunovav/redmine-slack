@@ -1,6 +1,11 @@
 require 'redmine'
 
+require_dependency 'redmine_slack/view_hooks'
 require_dependency 'redmine_slack/listener'
+
+require_dependency 'redmine_slack_user_patch'
+require_dependency 'redmine_slack_my_controller_patch'
+require_dependency 'redmine_slack_users_controller_patch'
 
 Redmine::Plugin.register :redmine_slack do
 	name 'Redmine Slack'

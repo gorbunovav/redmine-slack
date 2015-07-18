@@ -208,13 +208,40 @@ private
 	end
 
 	def mentions text
+		text = convert_usernames_to_slack text
 		names = extract_usernames text
-		names.present? ? "\nTo: " + names.join(', ') : nil
+		#names = convert_usernames_to_slack names
+		names.present? ? "\nTo: @" + names.map(&:downcase).join(', @') : nil		
+	end
+
+	def convert_usernames_to_slack text
+		users = User.sorted.active.preload(:preference)
+
+		users_map = {}
+
+        users.each do |u|
+          slack_username = u.rslack_preference[:username]
+          unless (slack_username == "")
+          	users_map[u.login] = slack_username
+          else 
+          	users_map[u.login] = u.login.downcase
+          end
+        end
+
+		text.gsub!(/(?<=@)[a-zA-Z0-9][a-zA-Z0-9_\-]*/) { |username| 
+			if users_map.key?(username)
+				users_map[username]
+			else 
+				username.downcase
+			end
+		}
+
+		text
 	end
 
 	def extract_usernames text = ''
 		# slack usernames may only contain lowercase letters, numbers,
 		# dashes and underscores and must start with a letter or number.
-		text.scan(/@[a-z0-9][a-z0-9_\-]*/).uniq
+		text.scan(/(?<=@)[a-zA-Z0-9][a-zA-Z0-9_\-]*/).uniq
 	end
 end
