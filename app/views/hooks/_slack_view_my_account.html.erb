@@ -1,0 +1,7 @@
+</fieldset>
+<fieldset class="box tabular">
+  <legend>Slack</legend>
+  <p>
+    <%= label(:redmine_slack, 'Slack username') %>
+    <%= text_field :redmine_slack, :username, :value => @user.rslack_preference[:username] %>
+  </p>
