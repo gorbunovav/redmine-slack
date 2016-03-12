@@ -19,7 +19,9 @@ module RedmineSlack
 
       @user.pref[prefixed] = value
       @prefs[prefixed] = value
-      @user.pref.save!
+      if !@user.id.nil?
+          @user.pref.save!
+      end
     end
 
     def [](attr)
