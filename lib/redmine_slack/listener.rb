@@ -1,6 +1,10 @@
 require 'httpclient'
 
 class SlackListener < Redmine::Hook::Listener
+    include ERB::Util  
+    include GravatarHelper::PublicMethods
+
+    ISSUE_STATUS_ASSIGNED = 2
     ISSUE_STATUS_CLOSED   = 5
     ISSUE_STATUS_REVIEW   = 8
     ISSUE_STATUS_TESTING  = 7
@@ -55,21 +59,20 @@ class SlackListener < Redmine::Hook::Listener
 
         return unless channel and url and Setting.plugin_redmine_slack[:post_updates] == '1'
 
-        msg = prepare_message(issue, journal)        
-
-        if msg == "" 
-            return
+        msg, attachment, icon_emoji = prepare_progress_message(issue, journal)
+        if msg != "" 
+            speak "", channel, attachment, url, icon_emoji
         end
 
-        msg += "#{mentions journal.notes}"
-        
-        fields = journal.details.map { |d| detail_to_field d }
+        msg, attachment = prepare_assigned_change_message(issue, journal)
+        if msg != "" 
+            speak msg, channel, attachment, url, ':you_dongler:'
+        end
 
-        attachment = {}
-        attachment[:text] = escape journal.notes if journal.notes
-        attachment[:fields] = fields if !fields.empty?
-
-        speak msg, channel, attachment, url
+        msg, attachment = prepare_details_change_message(issue, journal)
+        if msg != "" 
+            speak msg, channel, attachment, url
+        end    
     end
 
     def model_changeset_scan_commit_for_issue_ids_pre_issue_update(context={})
@@ -96,12 +99,12 @@ class SlackListener < Redmine::Hook::Listener
 
         attachment = {}
         attachment[:text] = ll(Setting.default_language, :text_status_changed_by_changeset, "<#{revision_url}|#{escape changeset.comments}>")
-        attachment[:fields] = journal.details.map { |d| detail_to_field d }
+        attachment[:fields] = journal.details.map { |d| detail_to_field d }.compact
 
         speak msg, channel, attachment, url
     end
 
-    def speak(msg, channel, attachment=nil, url=nil)
+    def speak(msg, channel, attachment={}, url=nil, icon_emoji=nil)
         url = Setting.plugin_redmine_slack[:slack_url] if not url
         username = Setting.plugin_redmine_slack[:username]
         icon = Setting.plugin_redmine_slack[:icon]
@@ -114,7 +117,7 @@ class SlackListener < Redmine::Hook::Listener
         params[:username] = username if username
         params[:channel] = channel if channel
 
-        params[:attachments] = [attachment] if attachment
+        params[:attachments] = [attachment] if !attachment.empty?
 
         if icon and not icon.empty?
             if icon.start_with? ':'
@@ -123,6 +126,8 @@ class SlackListener < Redmine::Hook::Listener
                 params[:icon_url] = icon
             end
         end
+
+        params[:icon_emoji] = icon_emoji if icon_emoji
 
         client = HTTPClient.new
         client.ssl_config.cert_store.set_default_paths
@@ -152,6 +157,179 @@ private
         return @users_map
     end
 
+    def get_avatar_url(email)
+        return gravatar_url(email, {:size => 150})
+    end
+
+    def prepare_progress_message(issue, journal)
+        executor      = get_executor(issue)
+        executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login);
+        msg = ""
+        attachment = {}
+        icon = nil
+        icon_emoji = nil
+
+        if !is_status_changed?(journal) 
+            return msg, attachment
+        end
+
+        if !is_story(issue) && issue.status.id != SlackListener::ISSUE_STATUS_CLOSED
+            return msg, attachment
+        end      
+        
+        #Status changes
+        icon_emoji = ':thumbsup_dongler:'
+
+        if !is_story(issue) 
+            if issue.status.id == SlackListener::ISSUE_STATUS_CLOSED 
+                msg = "#{escape journal.user.to_s} has finished the task :sunglasses::sunglasses::sunglasses::"
+                icon = get_avatar_url(journal.user.mail)
+            end
+        else 
+            if (!executor.nil? && executor.id == journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_ASSIGNED)
+                msg = "Hey guys, dont worry, #{escape journal.user.to_s} will take care of "
+                icon_emoji = ':you_dongler:'
+            end
+
+            if (!executor.nil? && executor.id == journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_REVIEW)
+                msg = "Hey guys, #{escape journal.user.to_s} claims, that this story is ready for Review! :innocent::innocent::innocent:"
+            end
+
+            if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_TESTING)
+                msg = "#{executor_mention}, good job! Your story just passed the Review! :thumbsup: Let's test it a little :smirk::smirk::smirk:"
+            end
+
+            if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_FEEDBACK)
+                msg = "#{executor_mention}, great, looks like you hid your bugs thoroughly! :ok_hand:"
+            end
+
+            if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_ACCEPTED)
+                msg = "#{executor_mention}, fantastic!!! Your story was just accepted! :tada::tada::tada: Mission accomplished :sunglasses::sunglasses::sunglasses:"
+                msg += "\n@channel guys, thumbs up for the good boy!"
+                icon_emoji = ':tada_dongler:'
+            end
+
+            if msg != "" 
+                icon = get_avatar_url(executor.mail)
+            end                
+        end
+
+        if msg != "" 
+            attachment[:title] = escape(issue)
+            attachment[:title_link] = object_url(issue)
+            attachment[:color] = "good"
+
+            attachment[:text] = issue.description.truncate(230, separator: ' ')
+            
+            if (issue.assigned_to != nil && issue.assigned_to.id != journal.user.id) 
+                assigned_user = "@" + get_slack_username(issue.assigned_to.login)
+                msg += "\n#{assigned_user}, it's your turn now!"
+            end
+
+            attachment[:pretext] = msg
+        end
+
+        if !icon.nil?
+            attachment[:thumb_url] = icon
+        end
+
+        return msg, attachment, icon_emoji
+    end
+
+    def prepare_assigned_change_message(issue, journal)
+        executor   = get_executor(issue)
+        msg        = ""
+        attachment = {}
+        icon       = nil
+
+        if !is_story(issue)
+            return msg, attachment
+        end
+
+        if is_status_changed?(journal) 
+            return msg, attachment
+        end       
+        
+        if !is_assigned_user_changed?(journal)
+            return msg, attachment
+        end
+
+        if issue.assigned_to == nil
+            return msg, attachment
+        end
+
+        if !executor.nil? && executor.id == issue.assigned_to.id && issue.assigned_to == journal.user
+            return msg, attachment
+        end
+
+        if (issue.assigned_to == journal.user)
+            #previous_owner = "@" + get_slack_username(issue.assigned_to.login)
+            msg  = "Story was captured by #{issue.assigned_to.to_s}: <#{object_url issue}|#{escape issue}>"
+            icon = get_avatar_url(issue.assigned_to.mail)
+        else
+            assigned_user = "@" + get_slack_username(issue.assigned_to.login)
+            msg  = "#{assigned_user} Issue was transferred to you: <#{object_url issue}|#{escape issue}> (by #{escape journal.user.to_s})"
+        end
+
+        if !icon.nil?
+            attachment[:thumb_url] = icon
+        end
+
+        return msg, attachment
+    end
+
+    def prepare_details_change_message(issue, journal)
+        msg = ""
+        attachment = {}
+        icon = nil
+
+        if !is_story(issue)
+            return msg, attachment
+        end
+
+        if is_status_changed?(journal) 
+            return msg, attachment
+        end
+
+        #Fields & comments changes
+        fields = journal.details.map { |d| detail_to_field d }.compact
+
+        if !fields.empty?                                               
+            msg = "#{escape journal.user.to_s} updated <#{object_url issue}|#{escape issue}>"
+        end
+
+        if msg == "" && !journal.notes.empty?
+            msg = "#{escape journal.user.to_s} commented on <#{object_url issue}|#{escape issue}>"
+        end
+
+        if msg != ""
+            mention = ""
+
+            if (!issue.assigned_to.nil? && issue.assigned_to.id != journal.user.id) 
+                mention = "@" + get_slack_username(issue.assigned_to.login) + " "
+            end
+
+            executor      = get_executor(issue)
+
+            if (!executor.nil? && executor.id != journal.user.id && (issue.assigned_to.nil? || issue.assigned_to.id != executor.id)) 
+                mention = mention + "@" + get_slack_username(executor.login) + " "
+            end
+
+            msg = mention + msg
+
+            msg += "#{mentions journal.notes}"
+        end      
+                        
+        attachment[:text] = escape journal.notes if !journal.notes.empty?
+        attachment[:fields] = fields if !fields.empty?
+
+        if !icon.nil?
+            attachment[:thumb_url] = icon
+        end
+
+        return msg, attachment
+    end
+
     def prepare_message(issue, journal) 
         executor      = get_executor(issue)
         executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login);
@@ -161,10 +339,10 @@ private
         end
 
         msg = ""
+        image = nil
         
         #Status changes
-        if is_status_changed?(journal)
-
+        if is_status_changed?(journal)            
             if !is_story(issue) && issue.status.id == SlackListener::ISSUE_STATUS_CLOSED 
                 msg = "#{escape journal.user.to_s} has finished the task :sunglasses::sunglasses::sunglasses::"
             end
@@ -182,7 +360,7 @@ private
             end
 
             if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_ACCEPTED)
-                msg = "#{executor_mention}, fantastic!!! Your story was just accepted! :tada::tada::tada: Mission accomplished :sunglasses::sunglasses::sunglasses:"
+                msg = "#{executor_mention}, fantastic!!! Your story was just accepted! :tada::tada::tada: Mission accomplished :sunglasses::sunglasses::sunglasses:"                
             end
 
             if msg != "" 
@@ -216,7 +394,7 @@ private
         end
     
         #Fields & comments changes
-        fields = journal.details.map { |d| detail_to_field d }
+        fields = journal.details.map { |d| detail_to_field d }.compact
 
         if !fields.empty?                                               
             msg = "#{escape journal.user.to_s} updated [#{escape issue.project}] <#{object_url issue}|#{escape issue}>"
@@ -264,12 +442,18 @@ private
         }
     end
 
+    def get_description(journal)
+        return journal.details.find{|item| 
+            item.prop_key.to_s == "description"
+        }
+    end
+
     def is_story(issue)
         return [1, 3, 4, 5].include?(issue.tracker.id)
     end
 
     def get_executor(issue)
-        field_id = CustomField.find(:first, :conditions => [ "name = ?", "Исполнитель"]).id
+        field_id = CustomField.where(:name => "Исполнитель").first.id
         value = issue.custom_value_for(field_id).value
 
         if !value.blank?
@@ -333,8 +517,11 @@ private
         value = escape detail.value.to_s
 
         case key
-        when "title", "subject", "description"
-            short = false       
+        when "title", "subject"
+            short = false
+        when "description"
+            short = false
+            value = value.truncate(230, separator: ' ')
         else
             return
         end
