@@ -195,16 +195,26 @@ private
         attachment = {
             :title      => escape(issue),
             :title_link => object_url(issue),
-            :text       => issue.description.truncate(230, separator: ' ')
+            :text       => issue.description.truncate(230, separator: ' '),
+            :fields     => []
         }
 
         if issue.priority.id != SlackListener::ISSUE_PRIORITY_NORMAL
-            attachment[:fields] = [{
+            attachment[:fields].push({
                 :title => 'Priority',
                 :value => escape(issue.priority.to_s),
                 :short => true
-            }]
+            })
         end
+
+        returns_count = get_returns_count(issue)
+        if returns_count > 0
+            attachment[:fields].push({
+                :title => 'Returns count',
+                :value => escape(returns_count.to_s),
+                :short => true
+            })
+        end        
 
         return attachment
     end
@@ -474,6 +484,13 @@ private
             value = nil
         end
         
+        return value        
+    end
+
+    def get_returns_count(issue)
+        field_id = CustomField.where(:name => "Returns count").first.id
+        value = issue.custom_value_for(field_id).value.to_i
+
         return value        
     end
 
