@@ -11,7 +11,9 @@ class SlackListener < Redmine::Hook::Listener
     ISSUE_STATUS_FEEDBACK = 4
     ISSUE_STATUS_ACCEPTED = 9
 
-    @users_map = nil
+    @users_map            = nil
+    @previous_assigned_to = nil
+    @previous_status_id   = nil
 
     def controller_issues_new_after_save(context={})
         return #No creation notifications for now
@@ -49,6 +51,12 @@ class SlackListener < Redmine::Hook::Listener
 
         speak msg, channel, attachment, url
     end  
+
+    def controller_issues_edit_before_save(context={})
+        issue = context[:issue]
+        @previous_assigned_to = issue.assigned_to_was
+        @previous_status_id   = issue.status_id_was
+    end
 
     def controller_issues_edit_after_save(context={})
         issue = context[:issue]
@@ -317,14 +325,17 @@ private
             return msg, attachment
         end
 
-        if (issue.assigned_to.id == journal.user.id)
-            #previous_owner = "@" + get_slack_username(issue.assigned_to.login)
-            msg  = "Story was captured by #{issue.assigned_to.to_s}: <#{object_url issue}|#{escape issue}>"
-            icon = get_avatar_url(issue.assigned_to.mail)
+        previous_owner = ""
+        if !@previous_assigned_to.nil? && @previous_assigned_to.id != journal.user.id
+            previous_owner = "@" + get_slack_username(@previous_assigned_to.login) + ", "
+        end
+
+        if (issue.assigned_to.id == journal.user.id)            
+            msg  = "#{previous_owner}Story was captured by #{issue.assigned_to.to_s}: <#{object_url issue}|#{escape issue}>"
+            #icon = get_avatar_url(issue.assigned_to.mail)
         else
             assigned_user = "@" + get_slack_username(issue.assigned_to.login)
-            msg  = "#{assigned_user} Issue was transferred to you: <#{object_url issue}|#{escape issue}> (by #{escape journal.user.to_s})"
-            #msg = "#{executor.id}-#{issue.assigned_to.id}-#{journal.user.id}-#{!executor.nil?}"
+            msg  = "#{previous_owner}Issue was transferred to #{assigned_user}: <#{object_url issue}|#{escape issue}> (by #{escape journal.user.to_s})"
         end
 
         if !icon.nil?
@@ -384,96 +395,6 @@ private
         end
 
         return msg, attachment
-    end
-
-    def prepare_message(issue, journal) 
-        executor      = get_executor(issue)
-        executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login);
-
-        if !is_story(issue) && (!is_status_changed?(journal) || issue.status.id != SlackListener::ISSUE_STATUS_CLOSED)
-            return ""
-        end
-
-        msg = ""
-        image = nil
-        
-        #Status changes
-        if is_status_changed?(journal)            
-            if !is_story(issue) && issue.status.id == SlackListener::ISSUE_STATUS_CLOSED 
-                msg = "#{escape journal.user.to_s} has finished the task :sunglasses::sunglasses::sunglasses::"
-            end
-
-            if (!executor.nil? && executor.id == journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_REVIEW)
-                msg = "Hey guys, #{escape journal.user.to_s} claims, that this story is ready for Review! :innocent::innocent::innocent:"
-            end
-
-            if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_TESTING)
-                msg = "#{executor_mention}, good job! Your story just passed the Review! :thumbsup: Let's test it a little :smirk::smirk::smirk:"
-            end
-
-            if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_FEEDBACK)
-                msg = "#{executor_mention}, great, looks like you hid your bugs thoroughly! :ok_hand:"
-            end
-
-            if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_ACCEPTED)
-                msg = "#{executor_mention}, fantastic!!! Your story was just accepted! :tada::tada::tada: Mission accomplished :sunglasses::sunglasses::sunglasses:"                
-            end
-
-            if msg != "" 
-                msg+= " [#{escape issue.project}] <#{object_url issue}|#{escape issue}>"
-
-                if (issue.assigned_to != nil && issue.assigned_to.id != journal.user.id) 
-                    assigned_user = "@" + get_slack_username(issue.assigned_to.login)
-                    msg += "\n#{assigned_user}, it's your turn now!"
-                end
-            end
-
-            return msg
-        end
-
-        #Assignment changes
-        if is_assigned_user_changed?(journal)
-            if (issue.assigned_to != nil && issue.assigned_to != journal.user) 
-                assigned_user = "@" + get_slack_username(issue.assigned_to.login)
-
-                verb = "transferred"
-                if (!executor.nil? && executor.id == issue.assigned_to.id)
-                    verb = "returned :cry::cry::cry:" 
-                end
-
-                msg = "#{assigned_user} Issue was #{verb} to you: [#{escape issue.project}] <#{object_url issue}|#{escape issue}> (by #{escape journal.user.to_s})"
-            end
-        end
-
-        if msg != ""
-            return msg
-        end
-    
-        #Fields & comments changes
-        fields = journal.details.map { |d| detail_to_field d }.compact
-
-        if !fields.empty?                                               
-            msg = "#{escape journal.user.to_s} updated [#{escape issue.project}] <#{object_url issue}|#{escape issue}>"
-        end
-
-        if msg == "" && journal.notes
-            msg = "#{escape journal.user.to_s} commented on [#{escape issue.project}] <#{object_url issue}|#{escape issue}>"
-        end
-
-        if msg != ""
-            mention = ""
-            if (!issue.assigned_to.nil? && issue.assigned_to.id != journal.user.id) 
-                mention = "@" + get_slack_username(issue.assigned_to.login) + " "
-            end
-
-            if (!executor.nil? && executor.id != journal.user.id && (issue.assigned_to.nil? || issue.assigned_to.id != executor.id)) 
-                mention = mention + "@" + get_slack_username(executor.login) + " "
-            end
-
-            msg = mention + msg
-        end
-
-        return msg
     end
 
     def get_slack_username(username) 
