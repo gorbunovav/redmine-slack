@@ -59,8 +59,13 @@ class SlackListener < Redmine::Hook::Listener
 
         return unless channel and url and Setting.plugin_redmine_slack[:post_updates] == '1'
 
-        msg, attachment, icon_emoji = prepare_progress_message(issue, journal)
-        if msg != "" 
+        attachment, icon_emoji = prepare_progress_message(issue, journal)
+        if !attachment.empty?
+            speak "", channel, attachment, url, icon_emoji
+        end
+
+        attachment, icon_emoji = prepare_return_message(issue, journal)
+        if !attachment.empty?
             speak "", channel, attachment, url, icon_emoji
         end
 
@@ -169,12 +174,12 @@ private
         icon = nil
         icon_emoji = nil
 
-        if !is_status_changed?(journal) 
-            return msg, attachment
+        if !is_status_changed?(journal)             
+            return attachment, icon_emoji
         end
 
         if !is_story(issue) && issue.status.id != SlackListener::ISSUE_STATUS_CLOSED
-            return msg, attachment
+            return attachment, icon_emoji
         end      
         
         #Status changes
@@ -233,7 +238,57 @@ private
             attachment[:thumb_url] = icon
         end
 
-        return msg, attachment, icon_emoji
+        return attachment, icon_emoji
+    end
+
+    def prepare_return_message(issue, journal)
+        executor      = get_executor(issue)
+        executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login);
+        msg        = ""
+        attachment = {}
+        icon       = nil
+        icon_emoji = nil
+
+        if is_status_changed?(journal) 
+            return attachment, icon_emoji
+        end
+
+        if !is_assigned_user_changed?(journal)
+            return attachment, icon_emoji
+        end
+
+        if issue.assigned_to == nil
+            return attachment, icon_emoji
+        end
+
+        if executor.nil? || (executor.id != issue.assigned_to.id || issue.assigned_to.id == journal.user.id)
+            return attachment, icon_emoji
+        end
+            
+        assigned_user = "@" + get_slack_username(issue.assigned_to.login)
+        msg = "#{assigned_user} Issue was returned :cry::cry::cry: to you (by #{escape journal.user.to_s})"
+        icon = get_avatar_url(issue.assigned_to.mail)
+
+        if issue.status.id == SlackListener::ISSUE_STATUS_FEEDBACK
+            icon_emoji         = ':upset_dongler:'
+            attachment[:color] = "danger"
+        else 
+            icon_emoji         = ':sad_dongler:'
+            attachment[:color] = "warning"
+        end
+
+        attachment[:title] = escape(issue)
+        attachment[:title_link] = object_url(issue)    
+
+        attachment[:text] = issue.description.truncate(230, separator: ' ')
+        
+        attachment[:pretext] = msg
+
+        if !icon.nil?
+            attachment[:thumb_url] = icon
+        end
+
+        return attachment, icon_emoji
     end
 
     def prepare_assigned_change_message(issue, journal)
@@ -258,17 +313,18 @@ private
             return msg, attachment
         end
 
-        if !executor.nil? && executor.id == issue.assigned_to.id && issue.assigned_to == journal.user
+        if !executor.nil? && executor.id == issue.assigned_to.id && issue.assigned_to.id != journal.user.id
             return msg, attachment
         end
 
-        if (issue.assigned_to == journal.user)
+        if (issue.assigned_to.id == journal.user.id)
             #previous_owner = "@" + get_slack_username(issue.assigned_to.login)
             msg  = "Story was captured by #{issue.assigned_to.to_s}: <#{object_url issue}|#{escape issue}>"
             icon = get_avatar_url(issue.assigned_to.mail)
         else
             assigned_user = "@" + get_slack_username(issue.assigned_to.login)
             msg  = "#{assigned_user} Issue was transferred to you: <#{object_url issue}|#{escape issue}> (by #{escape journal.user.to_s})"
+            #msg = "#{executor.id}-#{issue.assigned_to.id}-#{journal.user.id}-#{!executor.nil?}"
         end
 
         if !icon.nil?
