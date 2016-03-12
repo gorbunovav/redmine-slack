@@ -77,14 +77,14 @@ class SlackListener < Redmine::Hook::Listener
             speak "", channel, attachment, url, icon_emoji
         end
 
-        msg, attachment = prepare_assigned_change_message(issue, journal)
-        if msg != "" 
-            speak msg, channel, attachment, url, ':you_dongler:'
+        attachment = prepare_assigned_change_message(issue, journal)
+        if !attachment.empty?
+            speak "", channel, attachment, url, ':you_dongler:'
         end
 
-        msg, attachment = prepare_details_change_message(issue, journal)
-        if msg != "" 
-            speak msg, channel, attachment, url
+        attachment = prepare_details_change_message(issue, journal)
+        if !attachment.empty?
+            speak "", channel, attachment, url
         end    
     end
 
@@ -164,7 +164,7 @@ private
               end
             end
 
-            @users_map = users_map;
+            @users_map = users_map
         end
 
         return @users_map
@@ -174,9 +174,17 @@ private
         return gravatar_url(email, {:size => 150})
     end
 
+    def prepare_issue_description(issue)
+        return {
+            :title      => escape(issue),
+            :title_link => object_url(issue),
+            :text       => issue.description.truncate(230, separator: ' ')
+        }
+    end
+
     def prepare_progress_message(issue, journal)
         executor      = get_executor(issue)
-        executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login);
+        executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login)
         msg = ""
         attachment = {}
         icon = nil
@@ -200,7 +208,7 @@ private
             end
         else 
             if (!executor.nil? && executor.id == journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_ASSIGNED)
-                msg = "Hey guys, dont worry, #{escape journal.user.to_s} will take care of "
+                msg = "Hey guys, don't worry, #{escape journal.user.to_s} will take care of "
                 icon_emoji = ':you_dongler:'
             end
 
@@ -228,11 +236,8 @@ private
         end
 
         if msg != "" 
-            attachment[:title] = escape(issue)
-            attachment[:title_link] = object_url(issue)
+            attachment = prepare_issue_description(issue)
             attachment[:color] = "good"
-
-            attachment[:text] = issue.description.truncate(230, separator: ' ')
             
             if (issue.assigned_to != nil && issue.assigned_to.id != journal.user.id) 
                 assigned_user = "@" + get_slack_username(issue.assigned_to.login)
@@ -251,7 +256,7 @@ private
 
     def prepare_return_message(issue, journal)
         executor      = get_executor(issue)
-        executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login);
+        executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login)
         msg        = ""
         attachment = {}
         icon       = nil
@@ -277,6 +282,8 @@ private
         msg = "#{assigned_user} Issue was returned :cry::cry::cry: to you (by #{escape journal.user.to_s})"
         icon = get_avatar_url(issue.assigned_to.mail)
 
+        attachment = prepare_issue_description(issue)
+
         if issue.status.id == SlackListener::ISSUE_STATUS_FEEDBACK
             icon_emoji         = ':upset_dongler:'
             attachment[:color] = "danger"
@@ -285,11 +292,6 @@ private
             attachment[:color] = "warning"
         end
 
-        attachment[:title] = escape(issue)
-        attachment[:title_link] = object_url(issue)    
-
-        attachment[:text] = issue.description.truncate(230, separator: ' ')
-        
         attachment[:pretext] = msg
 
         if !icon.nil?
@@ -306,23 +308,23 @@ private
         icon       = nil
 
         if !is_story(issue)
-            return msg, attachment
+            return attachment
         end
 
         if is_status_changed?(journal) 
-            return msg, attachment
+            return attachment
         end       
         
         if !is_assigned_user_changed?(journal)
-            return msg, attachment
+            return attachment
         end
 
         if issue.assigned_to == nil
-            return msg, attachment
+            return attachment
         end
 
         if !executor.nil? && executor.id == issue.assigned_to.id && issue.assigned_to.id != journal.user.id
-            return msg, attachment
+            return attachment
         end
 
         previous_owner = ""
@@ -331,18 +333,21 @@ private
         end
 
         if (issue.assigned_to.id == journal.user.id)            
-            msg  = "#{previous_owner}Story was captured by #{issue.assigned_to.to_s}: <#{object_url issue}|#{escape issue}>"
+            msg  = "#{previous_owner}Story was captured by #{issue.assigned_to.to_s}"
             #icon = get_avatar_url(issue.assigned_to.mail)
         else
             assigned_user = "@" + get_slack_username(issue.assigned_to.login)
-            msg  = "#{previous_owner}Issue was transferred to #{assigned_user}: <#{object_url issue}|#{escape issue}> (by #{escape journal.user.to_s})"
+            msg  = "#{previous_owner}Issue was transferred to #{assigned_user} (by #{escape journal.user.to_s})"
         end
+
+        attachment = prepare_issue_description(issue)
+        attachment[:pretext] = msg
 
         if !icon.nil?
             attachment[:thumb_url] = icon
         end
 
-        return msg, attachment
+        return attachment
     end
 
     def prepare_details_change_message(issue, journal)
@@ -351,17 +356,21 @@ private
         icon = nil
 
         if !is_story(issue)
-            return msg, attachment
+            return attachment
         end
 
         if is_status_changed?(journal) 
-            return msg, attachment
+            return attachment
         end
 
         #Fields & comments changes
         fields = journal.details.map { |d| detail_to_field d }.compact
 
-        if !fields.empty?                                               
+        if fields.empty? && journal.notes.empty?
+           return attachment 
+        end
+
+        if !fields.empty?
             msg = "#{escape journal.user.to_s} updated <#{object_url issue}|#{escape issue}>"
         end
 
@@ -369,32 +378,31 @@ private
             msg = "#{escape journal.user.to_s} commented on <#{object_url issue}|#{escape issue}>"
         end
 
-        if msg != ""
-            mention = ""
+        
+        mention = ""
 
-            if (!issue.assigned_to.nil? && issue.assigned_to.id != journal.user.id) 
-                mention = "@" + get_slack_username(issue.assigned_to.login) + " "
-            end
-
-            executor      = get_executor(issue)
-
-            if (!executor.nil? && executor.id != journal.user.id && (issue.assigned_to.nil? || issue.assigned_to.id != executor.id)) 
-                mention = mention + "@" + get_slack_username(executor.login) + " "
-            end
-
-            msg = mention + msg
-
-            msg += "#{mentions journal.notes}"
-        end      
-                        
-        attachment[:text] = escape journal.notes if !journal.notes.empty?
-        attachment[:fields] = fields if !fields.empty?
-
-        if !icon.nil?
-            attachment[:thumb_url] = icon
+        if (!issue.assigned_to.nil? && issue.assigned_to.id != journal.user.id) 
+            mention = "@" + get_slack_username(issue.assigned_to.login) + " "
         end
 
-        return msg, attachment
+        executor      = get_executor(issue)
+
+        if (!executor.nil? && executor.id != journal.user.id && (issue.assigned_to.nil? || issue.assigned_to.id != executor.id)) 
+            mention = mention + "@" + get_slack_username(executor.login) + " "
+        end
+
+        msg = mention + msg
+
+        msg += "#{mentions journal.notes}"
+                        
+
+        attachment[:pretext] = msg
+        attachment[:thumb_url] = get_avatar_url(journal.user.mail)
+
+        attachment[:text]    = escape journal.notes if !journal.notes.empty?
+        attachment[:fields]  = fields if !fields.empty?      
+
+        return attachment
     end
 
     def get_slack_username(username) 
@@ -434,7 +442,7 @@ private
         value = issue.custom_value_for(field_id).value
 
         if !value.blank?
-            value = User.find(value);
+            value = User.find(value)
         else
             value = nil
         end
