@@ -11,19 +11,36 @@ class SlackListener < Redmine::Hook::Listener
     ISSUE_STATUS_FEEDBACK = 4
     ISSUE_STATUS_ACCEPTED = 9
 
+    ISSUE_PRIORITY_NORMAL = 4
+    ISSUE_PRIORITY_HIGH   = 5
+    ISSUE_PRIORITY_URGENT = 6
+    ISSUE_PRIORITY_IMMEDIATELY = 7
+
+    ISSUE_HIGH_PRIORITIES = [
+        SlackListener::ISSUE_PRIORITY_HIGH, 
+        SlackListener::ISSUE_PRIORITY_URGENT, 
+        SlackListener::ISSUE_PRIORITY_IMMEDIATELY
+    ]
+
     @users_map            = nil
     @previous_assigned_to = nil
     @previous_status_id   = nil
 
     def controller_issues_new_after_save(context={})
-        return #No creation notifications for now
-
         issue = context[:issue]
+
+        return unless SlackListener::ISSUE_HIGH_PRIORITIES.include?(issue.priority.id) #No creation notifications for now        
 
         channel = channel_for_project issue.project
         url = url_for_project issue.project
 
-        return unless channel and url       
+        return unless channel and url
+
+        attachment = prepare_issue_description(issue)
+        attachment[:pretext] = '@channel: important issue was created!'
+        speak "", channel, attachment, url
+
+        return
 
         msg = "[#{escape issue.project}] #{escape issue.author} created <#{object_url issue}|#{escape issue}>#{mentions issue.description}"
 
@@ -175,11 +192,21 @@ private
     end
 
     def prepare_issue_description(issue)
-        return {
+        attachment = {
             :title      => escape(issue),
             :title_link => object_url(issue),
             :text       => issue.description.truncate(230, separator: ' ')
         }
+
+        if issue.priority.id != SlackListener::ISSUE_PRIORITY_NORMAL
+            attachment[:fields] = [{
+                :title => 'Priority',
+                :value => escape(issue.priority.to_s),
+                :short => true
+            }]
+        end
+
+        return attachment
     end
 
     def prepare_progress_message(issue, journal)
@@ -507,6 +534,9 @@ private
         when "description"
             short = false
             value = value.truncate(230, separator: ' ')
+        when "priority"
+            priority = IssuePriority.find(detail.value) rescue nil
+            value = escape priority.to_s
         else
             return
         end
