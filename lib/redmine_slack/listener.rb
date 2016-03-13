@@ -22,6 +22,9 @@ class SlackListener < Redmine::Hook::Listener
         SlackListener::ISSUE_PRIORITY_IMMEDIATELY
     ]
 
+    MANAGER_USER = 3
+    TESTER_USER  = 6
+
     @users_map            = nil
     @previous_assigned_to = nil
     @previous_status_id   = nil
@@ -37,8 +40,8 @@ class SlackListener < Redmine::Hook::Listener
         return unless channel and url
 
         attachment = prepare_issue_description(issue)
-        attachment[:pretext] = '@channel: important issue was created!'
-        speak "", channel, attachment, url
+        msg = '@channel: important issue was created!'
+        speak msg, channel, attachment, url
 
         return
 
@@ -84,24 +87,24 @@ class SlackListener < Redmine::Hook::Listener
 
         return unless channel and url and Setting.plugin_redmine_slack[:post_updates] == '1'
 
-        attachment, icon_emoji = prepare_progress_message(issue, journal)
+        msg, attachment, icon_emoji = prepare_progress_message(issue, journal)
         if !attachment.empty?
-            speak "", channel, attachment, url, icon_emoji
+            speak msg, channel, attachment, url, icon_emoji
         end
 
-        attachment, icon_emoji = prepare_return_message(issue, journal)
+        msg, attachment, icon_emoji = prepare_return_message(issue, journal)
         if !attachment.empty?
-            speak "", channel, attachment, url, icon_emoji
+            speak msg, channel, attachment, url, icon_emoji
         end
 
-        attachment = prepare_assigned_change_message(issue, journal)
+        msg, attachment = prepare_assigned_change_message(issue, journal)
         if !attachment.empty?
-            speak "", channel, attachment, url, ':you_dongler:'
+            speak msg, channel, attachment, url, ':you_dongler:'
         end
 
-        attachment = prepare_details_change_message(issue, journal)
+        msg, attachment = prepare_details_change_message(issue, journal)
         if !attachment.empty?
-            speak "", channel, attachment, url
+            speak msg, channel, attachment, url
         end    
     end
 
@@ -228,11 +231,11 @@ private
         icon_emoji = nil
 
         if !is_status_changed?(journal)             
-            return attachment, icon_emoji
+            return msg, attachment, icon_emoji
         end
 
         if !is_story(issue) && issue.status.id != SlackListener::ISSUE_STATUS_CLOSED
-            return attachment, icon_emoji
+            return msg, attachment, icon_emoji
         end      
         
         #Status changes
@@ -251,19 +254,37 @@ private
 
             if (!executor.nil? && executor.id == journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_REVIEW)
                 msg = "Hey guys, #{escape journal.user.to_s} claims, that this story is ready for Review! :innocent::innocent::innocent:"
+                msg += "\n:shamrock: @#{get_slack_username journal.user.login}++"
             end
 
             if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_TESTING)
                 msg = "#{executor_mention}, good job! Your story just passed the Review! :thumbsup: Let's test it a little :smirk::smirk::smirk:"
+                msg += "\n:shamrock: #{executor_mention}++"
             end
 
             if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_FEEDBACK)
                 msg = "#{executor_mention}, great, looks like you hid your bugs thoroughly! :ok_hand:"
+                msg += "\n:shamrock: #{executor_mention}++"
             end
 
             if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_ACCEPTED)
-                msg = "#{executor_mention}, fantastic!!! Your story was just accepted! :tada::tada::tada: Mission accomplished :sunglasses::sunglasses::sunglasses:"
+                msg = "#{executor_mention}, fantastic!!! Your story was just accepted! :tada::tada::tada: Mission accomplished :sunglasses::sunglasses::sunglasses:"                
                 msg += "\n@channel guys, thumbs up for the good boy!"
+
+                returns_count = get_returns_count(issue)
+                bonus = 5               
+                bonus = 2 if returns_count > 0
+
+                karmaMsg  = "\n:shamrock: #{executor_mention}++#{bonus}"
+                
+                reviewer  = get_reviewer(issue)                        
+                karmaMsg += " :shamrock: @#{get_slack_username reviewer.login}++" if !reviewer.nil?
+                
+                tester      = get_tester(issue)
+                karmaMsg += " :shamrock: @#{get_slack_username tester.login}++"
+                
+                msg += karmaMsg            
+
                 icon_emoji = ':tada_dongler:'
             end
 
@@ -281,14 +302,14 @@ private
                 msg += "\n#{assigned_user}, it's your turn now!"
             end
 
-            attachment[:pretext] = msg
+            #attachment[:pretext] = msg
         end
 
         if !icon.nil?
             attachment[:thumb_url] = icon
         end
 
-        return attachment, icon_emoji
+        return msg, attachment, icon_emoji
     end
 
     def prepare_return_message(issue, journal)
@@ -300,42 +321,61 @@ private
         icon_emoji = nil
 
         if is_status_changed?(journal) 
-            return attachment, icon_emoji
+            return msg, attachment, icon_emoji
         end
 
         if !is_assigned_user_changed?(journal)
-            return attachment, icon_emoji
+            return msg, attachment, icon_emoji
         end
 
         if issue.assigned_to == nil
-            return attachment, icon_emoji
+            return msg, attachment, icon_emoji
         end
 
         if executor.nil? || (executor.id != issue.assigned_to.id || issue.assigned_to.id == journal.user.id)
-            return attachment, icon_emoji
+            return msg, attachment, icon_emoji
         end
             
         assigned_user = "@" + get_slack_username(issue.assigned_to.login)
         msg = "#{assigned_user} Issue was returned :cry::cry::cry: to you (by #{escape journal.user.to_s})"
         icon = get_avatar_url(issue.assigned_to.mail)
 
-        attachment = prepare_issue_description(issue)
+        attachment = prepare_issue_description(issue)        
+
+        penalty=""
+        returns_count = get_returns_count(issue)
+        penalty = returns_count if returns_count > 0
+
+        karmaMsg = "\n :japanese_ogre: #{assigned_user}--#{penalty}"
 
         if issue.status.id == SlackListener::ISSUE_STATUS_FEEDBACK
             icon_emoji         = ':upset_dongler:'
             attachment[:color] = "danger"
-        else 
+                        
+            reviewer    = get_reviewer(issue)
+            karmaMsg += " :japanese_ogre: @#{get_slack_username reviewer.login}--#{penalty}" if !reviewer.nil?
+
+            if journal.user.id != SlackListener::MANAGER_USER                
+                tester      = get_tester(issue)
+                karmaMsg += " :japanese_ogre: @#{get_slack_username tester.login}--#{penalty}"
+                
+                manager     = get_manager(issue)
+                karmaMsg += " :japanese_ogre: @#{get_slack_username manager.login}--#{penalty}"
+            end
+        else
             icon_emoji         = ':sad_dongler:'
             attachment[:color] = "warning"
         end
 
-        attachment[:pretext] = msg
+        msg += karmaMsg
+
+        #attachment[:pretext] = msg
 
         if !icon.nil?
             attachment[:thumb_url] = icon
         end
 
-        return attachment, icon_emoji
+        return msg, attachment, icon_emoji
     end
 
     def prepare_assigned_change_message(issue, journal)
@@ -345,23 +385,23 @@ private
         icon       = nil
 
         if !is_story(issue)
-            return attachment
+            return msg, attachment
         end
 
         if is_status_changed?(journal) 
-            return attachment
+            return msg, attachment
         end       
         
         if !is_assigned_user_changed?(journal)
-            return attachment
+            return msg, attachment
         end
 
         if issue.assigned_to == nil
-            return attachment
+            return msg, attachment
         end
 
         if !executor.nil? && executor.id == issue.assigned_to.id && issue.assigned_to.id != journal.user.id
-            return attachment
+            return msg, attachment
         end
 
         previous_owner = ""
@@ -378,13 +418,13 @@ private
         end
 
         attachment = prepare_issue_description(issue)
-        attachment[:pretext] = msg
+        #attachment[:pretext] = msg
 
         if !icon.nil?
             attachment[:thumb_url] = icon
         end
 
-        return attachment
+        return msg, attachment
     end
 
     def prepare_details_change_message(issue, journal)
@@ -393,18 +433,18 @@ private
         icon = nil
 
         if !is_story(issue)
-            return attachment
+            return msg, attachment
         end
 
         if is_status_changed?(journal) 
-            return attachment
+            return msg, attachment
         end
 
         #Fields & comments changes
         fields = journal.details.map { |d| detail_to_field d }.compact
 
         if fields.empty? && journal.notes.empty?
-           return attachment 
+           return msg, attachment 
         end
 
         if !fields.empty?
@@ -433,13 +473,13 @@ private
         msg += "#{mentions journal.notes}"
                         
 
-        attachment[:pretext] = msg
+        #attachment[:pretext] = msg
         attachment[:thumb_url] = get_avatar_url(journal.user.mail)
 
         attachment[:text]    = escape journal.notes if !journal.notes.empty?
         attachment[:fields]  = fields if !fields.empty?      
 
-        return attachment
+        return msg, attachment
     end
 
     def get_slack_username(username) 
@@ -486,6 +526,34 @@ private
         
         return value        
     end
+
+    def get_reviewer(issue)
+        field_id = CustomField.where(:name => "Ревьюер").first.id
+        value = issue.custom_value_for(field_id).value
+
+        if !value.blank?
+            value = User.find(value)
+        else
+            value = nil
+        end
+        
+        return value        
+    end
+
+    def get_tester(issue)
+        value = SlackListener::TESTER_USER
+        value = User.find(value)
+        
+        return value        
+    end
+
+    def get_manager(issue)
+        value = SlackListener::MANAGER_USER
+        value = User.find(value)
+        
+        return value        
+    end
+
 
     def get_returns_count(issue)
         field_id = CustomField.where(:name => "Returns count").first.id
