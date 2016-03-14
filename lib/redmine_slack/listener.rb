@@ -557,7 +557,9 @@ private
 
     def get_returns_count(issue)
         field_id = CustomField.where(:name => "Returns count").first.id
-        value = issue.custom_value_for(field_id).value.to_i
+        valueObject = issue.custom_value_for(field_id)
+        value = 0
+        value = valueObject.value.to_i if !valueObject.nil?
 
         return value        
     end
