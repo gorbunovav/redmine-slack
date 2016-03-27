@@ -353,14 +353,14 @@ private
             attachment[:color] = "danger"
                         
             reviewer    = get_reviewer(issue)
-            karmaMsg += " :japanese_ogre: @#{get_slack_username reviewer.login}--#{penalty}" if !reviewer.nil?
+            karmaMsg += " :japanese_ogre: @#{get_slack_username reviewer.login}--" if !reviewer.nil?
 
             if journal.user.id != SlackListener::MANAGER_USER                
                 tester      = get_tester(issue)
-                karmaMsg += " :japanese_ogre: @#{get_slack_username tester.login}--#{penalty}"
+                karmaMsg += " :japanese_ogre: @#{get_slack_username tester.login}--"
                 
                 manager     = get_manager(issue)
-                karmaMsg += " :japanese_ogre: @#{get_slack_username manager.login}--#{penalty}"
+                karmaMsg += " :japanese_ogre: @#{get_slack_username manager.login}--"
             end
         else
             icon_emoji         = ':sad_dongler:'
