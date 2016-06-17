@@ -198,7 +198,7 @@ private
         attachment = {
             :title      => escape(issue),
             :title_link => object_url(issue),
-            :text       => issue.description.truncate(230, separator: ' '),
+            :text       => escape(issue.description.delete("\r\n").truncate(230, separator: ' ')),
             :fields     => []
         }
 
@@ -254,28 +254,28 @@ private
 
             if (!executor.nil? && executor.id == journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_REVIEW)
                 msg = "Hey guys, #{escape journal.user.to_s} claims, that this story is ready for Review! :innocent::innocent::innocent:"
-                msg += "\n:shamrock: @#{get_slack_username journal.user.login}++"
+                msg += " :shamrock: @#{get_slack_username journal.user.login}++"
             end
 
             if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_TESTING)
                 msg = "#{executor_mention}, good job! Your story just passed the Review! :thumbsup: Let's test it a little :smirk::smirk::smirk:"
-                msg += "\n:shamrock: #{executor_mention}++"
+                msg += " :shamrock: #{executor_mention}++"
             end
 
             if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_FEEDBACK)
                 msg = "#{executor_mention}, great, looks like you hid your bugs thoroughly! :ok_hand:"
-                msg += "\n:shamrock: #{executor_mention}++"
+                msg += " :shamrock: #{executor_mention}++"
             end
 
             if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_ACCEPTED)
-                msg = "#{executor_mention}, fantastic!!! Your story was just accepted! :tada::tada::tada: Mission accomplished :sunglasses::sunglasses::sunglasses:"                
-                msg += "\n@channel guys, thumbs up for the good boy!"
+                msg = "#{executor_mention}, fantastic!!! Your story was just accepted! :tada::tada::tada: Mission accomplished :sunglasses::sunglasses::sunglasses:"
+                msg += " @channel guys, thumbs up for the good boy!"
 
                 returns_count = get_returns_count(issue)
                 bonus = 5               
                 bonus = 2 if returns_count > 0
 
-                karmaMsg  = "\n:shamrock: #{executor_mention}++#{bonus}"
+                karmaMsg  = " :shamrock: #{executor_mention}++#{bonus}"
                 
                 reviewer  = get_reviewer(issue)                        
                 karmaMsg += " :shamrock: @#{get_slack_username reviewer.login}++" if !reviewer.nil?
@@ -299,7 +299,7 @@ private
             
             if (issue.assigned_to != nil && issue.assigned_to.id != journal.user.id) 
                 assigned_user = "@" + get_slack_username(issue.assigned_to.login)
-                msg += "\n#{assigned_user}, it's your turn now!"
+                msg += " #{assigned_user}, it's your turn now!"
             end
 
             #attachment[:pretext] = msg
@@ -340,13 +340,13 @@ private
         msg = "#{assigned_user} Issue was returned :cry::cry::cry: to you (by #{escape journal.user.to_s})"
         icon = get_avatar_url(issue.assigned_to.mail)
 
-        attachment = prepare_issue_description(issue)        
+        attachment = prepare_issue_description(issue)
 
         penalty=""
         returns_count = get_returns_count(issue)
         penalty = returns_count if returns_count > 0
 
-        karmaMsg = "\n :japanese_ogre: #{assigned_user}--#{penalty}"
+        karmaMsg = " :japanese_ogre: #{assigned_user}--#{penalty}"
 
         if issue.status.id == SlackListener::ISSUE_STATUS_FEEDBACK
             icon_emoji         = ':upset_dongler:'
@@ -470,13 +470,14 @@ private
 
         msg = mention + msg
 
-        msg += "#{mentions journal.notes}"
+        #msg += "#{mentions journal.notes}"
+        comment = convert_usernames_to_slack(journal.notes)
                         
 
         #attachment[:pretext] = msg
         attachment[:thumb_url] = get_avatar_url(journal.user.mail)
 
-        attachment[:text]    = escape journal.notes if !journal.notes.empty?
+        attachment[:text]    = escape comment if !comment.empty?
         attachment[:fields]  = fields if !fields.empty?      
 
         return msg, attachment
@@ -644,7 +645,7 @@ private
     def convert_usernames_to_slack text
         users_map = get_users_map()
 
-        text.gsub!(/(?<=@)[a-zA-Z0-9][a-zA-Z0-9_\-]*/) { |username| 
+        text = text.gsub(/(?<=@)[a-zA-Z0-9][a-zA-Z0-9_\-]*/) { |username| 
             if users_map.key?(username)
                 users_map[username]
             else 
