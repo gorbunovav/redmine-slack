@@ -25,6 +25,13 @@ class SlackListener < Redmine::Hook::Listener
     MANAGER_USER = 3
     TESTER_USER  = 6
 
+    PROGRESS_EVENT_TASK_CLOSED             = 'task_closed'
+    PROGRESS_EVENT_STORY_CLAIMED           = 'story_claimed'
+    PROGRESS_EVENT_STORY_READY_FOR_REVIEW  = 'story_ready_for_reivew'
+    PROGRESS_EVENT_STORY_PASSED_THE_REVIEW = 'story_passed_the_reivew'
+    PROGRESS_EVENT_STORY_PASSED_TESTING    = 'story_passed_testing'
+    PROGRESS_EVENT_STORY_ACCEPTED          = 'story_accepted'
+
     @users_map            = nil
     @previous_assigned_to = nil
     @previous_status_id   = nil
@@ -87,9 +94,13 @@ class SlackListener < Redmine::Hook::Listener
 
         return unless channel and url and Setting.plugin_redmine_slack[:post_updates] == '1'
 
-        msg, attachment, icon_emoji = prepare_progress_message(issue, journal)
-        if !attachment.empty?
-            speak msg, channel, attachment, url, icon_emoji
+        progress_event = get_progress_event(issue, journal)
+
+        if progress_event
+            msg, attachment, icon_emoji = prepare_progress_message(issue, journal, progress_event)
+            if !attachment.empty?
+                speak msg, channel, attachment, url, icon_emoji
+            end
         end
 
         msg, attachment, icon_emoji = prepare_return_message(issue, journal)
@@ -106,6 +117,13 @@ class SlackListener < Redmine::Hook::Listener
         if !attachment.empty?
             speak msg, channel, attachment, url
         end    
+
+        if progress_event && progress_event == SlackListener::PROGRESS_EVENT_STORY_READY_FOR_REVIEW
+            msg = build_review_list(issue)
+            if !msg.empty?
+                speak msg, channel, {}, url
+            end
+        end
     end
 
     def model_changeset_scan_commit_for_issue_ids_pre_issue_update(context={})
@@ -194,6 +212,47 @@ private
         return gravatar_url(email, {:size => 150})
     end
 
+    def get_progress_event(issue, journal)
+        executor      = get_executor(issue)
+
+        if !is_status_changed?(journal)             
+            return false
+        end
+
+        if !is_story(issue) && issue.status.id != SlackListener::ISSUE_STATUS_CLOSED
+            return false
+        end      
+
+        #Status changes
+        if !is_story(issue) 
+            if issue.status.id == SlackListener::ISSUE_STATUS_CLOSED 
+                return SlackListener::PROGRESS_EVENT_TASK_CLOSED
+            end
+        else 
+            if (!executor.nil? && executor.id == journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_ASSIGNED)
+                return SlackListener::PROGRESS_EVENT_STORY_CLAIMED
+            end
+
+            if (!executor.nil? && executor.id == journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_REVIEW)
+                return SlackListener::PROGRESS_EVENT_STORY_READY_FOR_REVIEW
+            end
+
+            if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_TESTING)
+                return SlackListener::PROGRESS_EVENT_STORY_PASSED_THE_REVIEW
+            end
+
+            if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_FEEDBACK)
+                return SlackListener::PROGRESS_EVENT_STORY_PASSED_TESTING
+            end
+
+            if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_ACCEPTED)
+                return SlackListener::PROGRESS_EVENT_STORY_ACCEPTED
+            end
+        end
+
+        return false
+    end
+
     def prepare_issue_description(issue)
         attachment = {
             :title      => escape(issue),
@@ -222,76 +281,66 @@ private
         return attachment
     end
 
-    def prepare_progress_message(issue, journal)
+    def prepare_progress_message(issue, journal, progress_event)
         executor      = get_executor(issue)
         executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login)
         msg = ""
         attachment = {}
         icon = nil
-        icon_emoji = nil
 
-        if !is_status_changed?(journal)             
-            return msg, attachment, icon_emoji
-        end
-
-        if !is_story(issue) && issue.status.id != SlackListener::ISSUE_STATUS_CLOSED
-            return msg, attachment, icon_emoji
-        end      
-        
         #Status changes
         icon_emoji = ':thumbsup_dongler:'
-
-        if !is_story(issue) 
-            if issue.status.id == SlackListener::ISSUE_STATUS_CLOSED 
-                msg = "#{escape journal.user.to_s} has finished the task :sunglasses::sunglasses::sunglasses::"
-                icon = get_avatar_url(journal.user.mail)
-            end
-        else 
-            if (!executor.nil? && executor.id == journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_ASSIGNED)
-                msg = "Hey guys, don't worry, #{escape journal.user.to_s} will take care of "
-                icon_emoji = ':you_dongler:'
-            end
-
-            if (!executor.nil? && executor.id == journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_REVIEW)
-                msg = "Hey guys, #{escape journal.user.to_s} claims, that this story is ready for Review! :innocent::innocent::innocent:"
-                msg += " :shamrock: @#{get_slack_username journal.user.login}++"
-            end
-
-            if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_TESTING)
-                msg = "#{executor_mention}, good job! Your story just passed the Review! :thumbsup: Let's test it a little :smirk::smirk::smirk:"
-                msg += " :shamrock: #{executor_mention}++"
-            end
-
-            if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_FEEDBACK)
-                msg = "#{executor_mention}, great, looks like you hid your bugs thoroughly! :ok_hand:"
-                msg += " :shamrock: #{executor_mention}++"
-            end
-
-            if (!executor.nil? && executor.id != journal.user.id && issue.status.id == SlackListener::ISSUE_STATUS_ACCEPTED)
-                msg = "#{executor_mention}, fantastic!!! Your story was just accepted! :tada::tada::tada: Mission accomplished :sunglasses::sunglasses::sunglasses:"
-                msg += " @channel guys, thumbs up for the good boy!"
-
-                returns_count = get_returns_count(issue)
-                bonus = 5               
-                bonus = 2 if returns_count > 0
-
-                karmaMsg  = " :shamrock: #{executor_mention}++#{bonus}"
-                
-                reviewer  = get_reviewer(issue)                        
-                karmaMsg += " :shamrock: @#{get_slack_username reviewer.login}++" if !reviewer.nil?
-                
-                tester      = get_tester(issue)
-                karmaMsg += " :shamrock: @#{get_slack_username tester.login}++"
-                
-                msg += karmaMsg            
-
-                icon_emoji = ':tada_dongler:'
-            end
-
-            if msg != "" 
-                icon = get_avatar_url(executor.mail)
-            end                
+        
+        if progress_event == SlackListener::PROGRESS_EVENT_TASK_CLOSED 
+            msg = "#{escape journal.user.to_s} has finished the task :sunglasses::sunglasses::sunglasses::"
+            icon = get_avatar_url(journal.user.mail)
         end
+
+        if progress_event == SlackListener::PROGRESS_EVENT_STORY_CLAIMED 
+            msg = "Hey guys, don't worry, #{escape journal.user.to_s} will take care of "
+            icon_emoji = ':you_dongler:'
+        end
+
+        if progress_event == SlackListener::PROGRESS_EVENT_STORY_READY_FOR_REVIEW 
+            msg = "Hey guys, #{escape journal.user.to_s} claims, that this story is ready for Review! :innocent::innocent::innocent:"
+            msg += " :shamrock: @#{get_slack_username journal.user.login}++"
+        end
+
+        if progress_event == SlackListener::PROGRESS_EVENT_STORY_PASSED_THE_REVIEW 
+            msg = "#{executor_mention}, good job! Your story just passed the Review! :thumbsup: Let's test it a little :smirk::smirk::smirk:"
+            msg += " :shamrock: #{executor_mention}++"
+        end
+
+        if progress_event == SlackListener::PROGRESS_EVENT_STORY_PASSED_TESTING 
+            msg = "#{executor_mention}, great, looks like you hid your bugs thoroughly! :ok_hand:"
+            msg += " :shamrock: #{executor_mention}++"
+        end
+
+        if progress_event == SlackListener::PROGRESS_EVENT_STORY_ACCEPTED 
+            msg = "#{executor_mention}, fantastic!!! Your story was just accepted! :tada::tada::tada: Mission accomplished :sunglasses::sunglasses::sunglasses:"
+            msg += " @channel guys, thumbs up for the good boy!"
+
+            returns_count = get_returns_count(issue)
+            bonus = 5               
+            bonus = 2 if returns_count > 0
+
+            karmaMsg  = " :shamrock: #{executor_mention}++#{bonus}"
+            
+            reviewer  = get_reviewer(issue)                        
+            karmaMsg += " :shamrock: @#{get_slack_username reviewer.login}++" if !reviewer.nil?
+            
+            tester      = get_tester(issue)
+            karmaMsg += " :shamrock: @#{get_slack_username tester.login}++"
+            
+            msg += karmaMsg            
+
+            icon_emoji = ':tada_dongler:'
+        end
+
+        if msg != "" 
+            icon = get_avatar_url(executor.mail)
+        end                
+        
 
         if msg != "" 
             attachment = prepare_issue_description(issue)
@@ -715,5 +764,24 @@ private
         result = { :title => title, :value => value }
         result[:short] = true if short
         result
+    end
+
+    def build_review_list(issue)
+        executor      = get_executor(issue)
+        executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login)
+
+        reviewList = "#{executor_mention}, following tasks are waiting for review:\r\n"
+        reviewList += get_issues_for_review().join("\r\n")
+    end
+
+    def get_issues_for_review
+        ir_query = IssueQuery.find(8)
+        issues = ir_query.issues
+
+        issues.collect!{|issue|
+            "• <#{object_url issue}|#{issue.tracker.name} ##{issue.id} (#{issue.project.name}): #{issue.subject} (#{issue.status.name}) [#{issue.priority.name}]>"
+        }
+
+        issues
     end
 end
