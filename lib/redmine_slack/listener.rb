@@ -815,8 +815,12 @@ private
 
     def build_review_list(issue)
         reviewList = "The following tasks are waiting for review:\r\n"
-        
+
         issues = get_issues_for_review()
+        if issues.empty? 
+            return ''
+        end
+
         issues.collect!{|issue|
             format_issue_for_list(issue)
         }
@@ -848,6 +852,9 @@ private
     def get_assigned_issues
         ir_query = IssueQuery.find(4)
         issues = ir_query.issues[0..9]
+        if issues.empty? 
+            return ''
+        end
 
         issues
     end
