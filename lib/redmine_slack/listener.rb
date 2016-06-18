@@ -33,6 +33,7 @@ class SlackListener < Redmine::Hook::Listener
     PROGRESS_EVENT_STORY_ACCEPTED          = 'story_accepted'
 
     @users_map            = nil
+    @silent_update        = false
     @previous_assigned_to = nil
     @previous_status_id   = nil
     @previous_priority_id = nil
@@ -87,6 +88,13 @@ class SlackListener < Redmine::Hook::Listener
         @previous_status_id   = issue.status_id_was
         @previous_priority_id = issue.priority_id_was
         @previous_returns_count = get_returns_count(issue)
+
+        journal = context[:journal]
+        
+        if !journal.notes.empty? && journal.notes.start_with?("[silent-update]")
+            @silent_update = true            
+            journal.notes.sub!(/^\[silent-update\]/, '')            
+        end
     end
 
     def controller_issues_edit_after_save(context={})
@@ -516,7 +524,7 @@ private
         #Fields & comments changes
         fields = journal.details.map { |d| detail_to_field d }.compact
 
-        if fields.empty? && journal.notes.empty?
+        if fields.empty? && (journal.notes.empty? || @silent_update)
            return msg, attachment 
         end
 
@@ -524,7 +532,7 @@ private
             msg = "#{escape journal.user.to_s} updated <#{object_url issue}|#{escape issue}>"
         end
 
-        if msg == "" && !journal.notes.empty?
+        if msg == "" && !journal.notes.empty? && !@silent_update
             msg = "#{escape journal.user.to_s} commented on <#{object_url issue}|#{escape issue}>"
         end
 
