@@ -34,10 +34,11 @@ class SlackListener < Redmine::Hook::Listener
 
     @users_map            = nil
     @silent_update        = false
+    @isReturn             = false
     @previous_assigned_to = nil
     @previous_status_id   = nil
     @previous_priority_id = nil
-    @previous_returns_count = 0
+    @previous_returns_count = 0    
 
     def controller_issues_new_after_save(context={})
         issue = context[:issue]
@@ -90,16 +91,24 @@ class SlackListener < Redmine::Hook::Listener
         @previous_returns_count = get_returns_count(issue)
 
         journal = context[:journal]
+
+        isReturnField = get_isReturnField(issue)        
+
+        if !isReturnField.nil? && isReturnField.value.to_i == 1
+            @isReturn = true
+            isReturnField.value = 0
+            incReturnsField(issue)
+        end
         
         if !journal.notes.empty? && journal.notes.start_with?("[silent-update]")
-            @silent_update = true            
-            journal.notes.sub!(/^\[silent-update\]/, '')            
+            @silent_update = true
+            journal.notes.sub!(/^\[silent-update\]/, '')
         end
     end
 
     def controller_issues_edit_after_save(context={})
         issue = context[:issue]
-        journal = context[:journal]
+        journal = context[:journal]    
 
         channel = channel_for_project issue.project
         url = url_for_project issue.project
@@ -412,7 +421,7 @@ private
 
         returns_count = get_returns_count(issue)
 
-        if @previous_returns_count >= returns_count
+        if !@isReturn
             return msg, attachment, icon_emoji
         end
             
@@ -481,7 +490,7 @@ private
 
         returns_count = get_returns_count(issue)
 
-        if !executor.nil? && executor.id == issue.assigned_to.id && issue.assigned_to.id != journal.user.id && @previous_returns_count < returns_count
+        if !executor.nil? && executor.id == issue.assigned_to.id && issue.assigned_to.id != journal.user.id && @isReturn
             return msg, attachment
         end
 
@@ -611,6 +620,25 @@ private
         }
     end
 
+    def get_isReturnField(issue)
+        issue.custom_field_values.each do |field|
+          if field.custom_field.name == "Is return"
+            return field
+          end
+        end
+
+        return nil
+    end
+
+    def incReturnsField(issue)
+        issue.custom_field_values.each do |field|
+          if field.custom_field.name == "Returns count"
+            field.value = field.value.to_i + 1
+            return
+          end
+        end
+    end
+
     def is_story(issue)
         return [1, 3, 4, 5].include?(issue.tracker.id)
     end
@@ -625,7 +653,7 @@ private
             value = nil
         end
         
-        return value        
+        return value
     end
 
     def get_reviewer(issue)
