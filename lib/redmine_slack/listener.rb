@@ -35,6 +35,7 @@ class SlackListener < Redmine::Hook::Listener
     @users_map            = nil
     @previous_assigned_to = nil
     @previous_status_id   = nil
+    @previous_priority_id = nil
 
     def controller_issues_new_after_save(context={})
         issue = context[:issue]
@@ -83,6 +84,7 @@ class SlackListener < Redmine::Hook::Listener
         issue = context[:issue]
         @previous_assigned_to = issue.assigned_to_was
         @previous_status_id   = issue.status_id_was
+        @previous_priority_id = issue.priority_id_was
     end
 
     def controller_issues_edit_after_save(context={})
@@ -116,7 +118,12 @@ class SlackListener < Redmine::Hook::Listener
         msg, attachment = prepare_details_change_message(issue, journal)
         if !attachment.empty?
             speak msg, channel, attachment, url
-        end    
+        end
+
+        msg, attachment = prepare_priority_change_message(issue, journal)
+        if !attachment.empty?
+            speak msg, channel, attachment, url
+        end
 
         if progress_event && progress_event == SlackListener::PROGRESS_EVENT_STORY_READY_FOR_REVIEW
             executor      = get_executor(issue)
@@ -540,6 +547,25 @@ private
         return msg, attachment
     end
 
+    def prepare_priority_change_message(issue, journal)
+        msg = ''
+        attachment = {}
+
+        if (@previous_priority_id == issue.priority_id)
+            return msg, attachment
+        end        
+
+        issueWasImportant   = SlackListener::ISSUE_HIGH_PRIORITIES.include?(@previous_priority_id)
+        issueIsImportantNow = SlackListener::ISSUE_HIGH_PRIORITIES.include?(issue.priority_id)
+        
+        if !issueWasImportant && issueIsImportantNow
+            msg = '@channel: issue priority has been raised!'
+            attachment = prepare_issue_description(issue)
+        end
+
+        return msg, attachment
+    end
+
     def get_slack_username(username) 
         users_map = get_users_map()
         
@@ -816,4 +842,5 @@ private
 
         issues
     end
+
 end
