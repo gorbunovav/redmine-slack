@@ -36,6 +36,7 @@ class SlackListener < Redmine::Hook::Listener
     @previous_assigned_to = nil
     @previous_status_id   = nil
     @previous_priority_id = nil
+    @previous_returns_count = 0
 
     def controller_issues_new_after_save(context={})
         issue = context[:issue]
@@ -85,6 +86,7 @@ class SlackListener < Redmine::Hook::Listener
         @previous_assigned_to = issue.assigned_to_was
         @previous_status_id   = issue.status_id_was
         @previous_priority_id = issue.priority_id_was
+        @previous_returns_count = get_returns_count(issue)
     end
 
     def controller_issues_edit_after_save(context={})
@@ -399,6 +401,12 @@ private
         if executor.nil? || (executor.id != issue.assigned_to.id || issue.assigned_to.id == journal.user.id)
             return msg, attachment, icon_emoji
         end
+
+        returns_count = get_returns_count(issue)
+
+        if @previous_returns_count >= returns_count
+            return msg, attachment, icon_emoji
+        end
             
         assigned_user = "@" + get_slack_username(issue.assigned_to.login)
         msg = "#{assigned_user} Issue was returned :cry::cry::cry: to you (by #{escape journal.user.to_s})"
@@ -406,8 +414,7 @@ private
 
         attachment = prepare_issue_description(issue)
 
-        penalty=""
-        returns_count = get_returns_count(issue)
+        penalty=""        
         penalty = returns_count if returns_count > 0
 
         karmaMsg = " :japanese_ogre: #{assigned_user}--#{penalty}"
@@ -464,7 +471,9 @@ private
             return msg, attachment
         end
 
-        if !executor.nil? && executor.id == issue.assigned_to.id && issue.assigned_to.id != journal.user.id
+        returns_count = get_returns_count(issue)
+
+        if !executor.nil? && executor.id == issue.assigned_to.id && issue.assigned_to.id != journal.user.id && @previous_returns_count < returns_count
             return msg, attachment
         end
 
