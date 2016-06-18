@@ -119,9 +119,17 @@ class SlackListener < Redmine::Hook::Listener
         end    
 
         if progress_event && progress_event == SlackListener::PROGRESS_EVENT_STORY_READY_FOR_REVIEW
+            executor      = get_executor(issue)
+            executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login)
+
             msg = build_review_list(issue)
             if !msg.empty?
-                speak msg, channel, {}, url
+                speak msg, executor_mention, {}, url
+            end
+
+            msg = build_assigned_list(issue)
+            if !msg.empty?
+                speak msg, executor_mention, {}, url
             end
         end
     end
@@ -766,21 +774,45 @@ private
         result
     end
 
-    def build_review_list(issue)
-        executor      = get_executor(issue)
-        executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login)
+    def format_issue_for_list(issue)
+        return "• #{issue.project.name} - <#{object_url issue}|#{issue.tracker.name} ##{issue.id}: #{issue.subject}> (#{issue.status.name}) [#{issue.priority.name}]"
+    end
 
-        reviewList = "#{executor_mention}, following tasks are waiting for review:\r\n"
-        reviewList += get_issues_for_review().join("\r\n")
+    def build_review_list(issue)
+        reviewList = "The following tasks are waiting for review:\r\n"
+        
+        issues = get_issues_for_review()
+        issues.collect!{|issue|
+            format_issue_for_list(issue)
+        }
+
+        reviewList += issues.join("\r\n")
+
+        return reviewList
     end
 
     def get_issues_for_review
         ir_query = IssueQuery.find(8)
         issues = ir_query.issues
+        issues
+    end
 
+    def build_assigned_list(issue)
+        assignedList = "The following tasks are waiting for your attention:\r\n"
+
+        issues = get_assigned_issues()
         issues.collect!{|issue|
-            "• <#{object_url issue}|#{issue.tracker.name} ##{issue.id} (#{issue.project.name}): #{issue.subject} (#{issue.status.name}) [#{issue.priority.name}]>"
+            format_issue_for_list(issue)
         }
+
+        assignedList += issues.join("\r\n")
+
+        return assignedList
+    end
+
+    def get_assigned_issues
+        ir_query = IssueQuery.find(4)
+        issues = ir_query.issues[0..9]
 
         issues
     end
