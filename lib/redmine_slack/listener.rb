@@ -94,12 +94,14 @@ class SlackListener < Redmine::Hook::Listener
 
         isReturnField = get_isReturnField(issue)        
 
+        @isReturn = false
         if !isReturnField.nil? && isReturnField.value.to_i == 1
             @isReturn = true
             isReturnField.value = 0
             incReturnsField(issue)
         end
         
+        @silent_update = false
         if !journal.notes.empty? && journal.notes.start_with?("[silent-update]")
             @silent_update = true
             journal.notes.sub!(/^\[silent-update\]/, '')
