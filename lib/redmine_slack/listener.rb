@@ -373,7 +373,7 @@ private
             icon_emoji = ':tada_dongler:'
         end
 
-        if msg != "" 
+        if msg != ""  && !executor.nil?
             icon = get_avatar_url(executor.mail)
         end                
         
