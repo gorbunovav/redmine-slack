@@ -877,7 +877,11 @@ private
     def build_assigned_list(issue)
         assignedList = "The following tasks are waiting for your attention:\r\n"
 
-        issues = get_assigned_issues()
+        issues = get_assigned_issues()        
+        if issues.empty?
+            return ''
+        end
+
         issues.collect!{|issue|
             format_issue_for_list(issue)
         }
