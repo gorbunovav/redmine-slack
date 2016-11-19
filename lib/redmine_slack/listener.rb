@@ -293,7 +293,7 @@ private
         attachment = {
             :title      => escape(issue),
             :title_link => object_url(issue),
-            :text       => escape(issue.description.delete("\r\n").truncate(230, separator: ' ')),
+            :text       => issue.description.nil? ? "" : escape(issue.description.delete("\r\n").truncate(230, separator: ' ')),
             :fields     => []
         }
 
