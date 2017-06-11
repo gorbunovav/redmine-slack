@@ -852,7 +852,7 @@ private
     end
 
     def build_review_list(issue)
-        reviewList = "The following tasks are waiting for review:\r\n"
+        reviewList = "*The following tasks are waiting for review:*\r\n"
 
         issues = get_issues_for_review()
         if issues.empty? 
@@ -875,7 +875,7 @@ private
     end
 
     def build_assigned_list(issue)
-        assignedList = "The following tasks are waiting for your attention:\r\n"
+        assignedList = "*The following tasks are waiting for your attention:*\r\n"
 
         issues = get_assigned_issues()        
         if issues.empty?
