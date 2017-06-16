@@ -245,7 +245,7 @@ private
     end
 
     def get_avatar_url(email)
-        return gravatar_url(email, {:size => 150})
+        return "https:" + gravatar_url(email, {:size => 150})
     end
 
     def get_progress_event(issue, journal)
