@@ -102,7 +102,7 @@ class SlackListener < Redmine::Hook::Listener
         end
         
         @silent_update = false
-        if !journal.notes.empty? && journal.notes.start_with?("[silent-update]")
+        if !journal.notes.blank? && journal.notes.start_with?("[silent-update]")
             @silent_update = true
             journal.notes.sub!(/^\[silent-update\]/, '')
         end
@@ -121,28 +121,28 @@ class SlackListener < Redmine::Hook::Listener
 
         if progress_event
             msg, attachment, icon_emoji = prepare_progress_message(issue, journal, progress_event)
-            if !attachment.empty?
+            if !attachment.blank?
                 speak msg, channel, attachment, url, icon_emoji
             end
         end
 
         msg, attachment, icon_emoji = prepare_return_message(issue, journal)
-        if !attachment.empty?
+        if !attachment.blank?
             speak msg, channel, attachment, url, icon_emoji
         end
 
         msg, attachment = prepare_assigned_change_message(issue, journal)
-        if !attachment.empty?
+        if !attachment.blank?
             speak msg, channel, attachment, url, ':you_dongler:'
         end
 
         msg, attachment = prepare_details_change_message(issue, journal)
-        if !attachment.empty?
+        if !attachment.blank?
             speak msg, channel, attachment, url
         end
 
         msg, attachment = prepare_priority_change_message(issue, journal)
-        if !attachment.empty?
+        if !attachment.blank?
             speak msg, channel, attachment, url
         end
 
@@ -151,12 +151,12 @@ class SlackListener < Redmine::Hook::Listener
             executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login)
 
             msg = build_review_list(issue)
-            if !msg.empty?
+            if !msg.blank?
                 speak msg, executor_mention, {}, url
             end
 
             msg = build_assigned_list(issue)
-            if !msg.empty?
+            if !msg.blank?
                 speak msg, executor_mention, {}, url
             end
         end
@@ -204,9 +204,9 @@ class SlackListener < Redmine::Hook::Listener
         params[:username] = username if username
         params[:channel] = channel if channel
 
-        params[:attachments] = [attachment] if !attachment.empty?
+        params[:attachments] = [attachment] if !attachment.blank?
 
-        if icon and not icon.empty?
+        if icon and not icon.blank?
             if icon.start_with? ':'
                 params[:icon_emoji] = icon
             else
@@ -535,15 +535,15 @@ private
         #Fields & comments changes
         fields = journal.details.map { |d| detail_to_field d }.compact
 
-        if fields.empty? && (journal.notes.empty? || @silent_update)
+        if fields.blank? && (journal.notes.blank? || @silent_update)
            return msg, attachment 
         end
 
-        if !fields.empty?
+        if !fields.blank?
             msg = "#{escape journal.user.to_s} updated <#{object_url issue}|#{escape issue}>"
         end
 
-        if msg == "" && !journal.notes.empty? && !@silent_update
+        if msg == "" && !journal.notes.blank? && !@silent_update
             msg = "#{escape journal.user.to_s} commented on <#{object_url issue}|#{escape issue}>"
         end
 
@@ -569,8 +569,8 @@ private
         #attachment[:pretext] = msg
         attachment[:thumb_url] = get_avatar_url(journal.user.mail)
 
-        attachment[:text]    = escape comment if !comment.empty?
-        attachment[:fields]  = fields if !fields.empty?      
+        attachment[:text]    = escape comment if !comment.blank?
+        attachment[:fields]  = fields if !fields.blank?      
 
         return msg, attachment
     end
@@ -759,7 +759,7 @@ private
             return
         end
 
-        value = "-" if value.empty?
+        value = "-" if value.blank?
 
         result = { :title => title, :value => value }
         result[:short] = true if short
@@ -840,7 +840,7 @@ private
             value = "<#{object_url issue}|#{escape issue}>" if issue
         end
 
-        value = "-" if value.empty?
+        value = "-" if value.blank?
 
         result = { :title => title, :value => value }
         result[:short] = true if short
@@ -855,7 +855,7 @@ private
         reviewList = "*The following tasks are waiting for review:*\r\n"
 
         issues = get_issues_for_review()
-        if issues.empty? 
+        if issues.blank? 
             return ''
         end
 
@@ -878,7 +878,7 @@ private
         assignedList = "*The following tasks are waiting for your attention:*\r\n"
 
         issues = get_assigned_issues()        
-        if issues.empty?
+        if issues.blank?
             return ''
         end
 
@@ -894,7 +894,7 @@ private
     def get_assigned_issues
         ir_query = IssueQuery.find(4)
         issues = ir_query.issues[0..9]
-        if issues.empty? 
+        if issues.blank? 
             return ''
         end
 
