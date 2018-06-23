@@ -317,7 +317,7 @@ private
             :title      => escape(issue),
             :title_link => object_url(issue),
             :text       => issue.description.nil? ? "" : escape(issue.description.delete("\r\n").truncate(230, separator: ' ')),
-            :fields     => []
+            :fields     => [],
             :fallback   => escape(issue)
         }
 
