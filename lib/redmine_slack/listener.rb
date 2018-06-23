@@ -140,22 +140,14 @@ class SlackListener < Redmine::Hook::Listener
             attachments.push(attachment)
         end
 
-        newMsg, attachment = prepare_details_change_message(issue, journal)
+        msg, attachment = prepare_details_change_message(issue, journal, msg)
         if !attachment.blank?
             attachments.push(attachment)
-
-            if msg == "" 
-                msg = newMsg
-            end
         end
         
-        newMsg, attachment = prepare_comment_message(issue, journal)
+        msg, attachment = prepare_comment_message(issue, journal, msg)
         if !attachment.blank?
             attachments.push(attachment)
-
-            if msg == "" 
-                msg = newMsg
-            end
         end
 
         if msg != ""
@@ -509,8 +501,7 @@ private
         return msg, attachment, ':you_dongler:'
     end
 
-    def prepare_comment_message(issue, journal)
-        msg = ""
+    def prepare_comment_message(issue, journal, msg="")
         attachment = {}
         icon = nil
 
@@ -518,8 +509,11 @@ private
            return msg, attachment 
         end
 
-        
-        msg = "#{escape journal.user.to_s} commented on <#{object_url issue}|#{escape issue}>"
+        if msg == ""
+            msg = "#{escape journal.user.to_s} commented on <#{object_url issue}|#{escape issue}>"
+
+            attachment[:thumb_url] = get_avatar_url(journal.user.mail)
+        end
                 
         mention = ""
 
@@ -535,19 +529,15 @@ private
 
         msg = mention + msg
 
-        #msg += "#{mentions journal.notes}"
         comment = convert_usernames_to_slack(journal.notes)
                         
-        #attachment[:pretext] = msg
-        attachment[:thumb_url] = get_avatar_url(journal.user.mail)
-
         attachment[:text]     = escape comment
         attachment[:fallback] = escape comment
 
         return msg, attachment
     end
 
-    def prepare_details_change_message(issue, journal)
+    def prepare_details_change_message(issue, journal, msg="")
         msg = ""
         attachment = {}
         icon = nil
@@ -563,7 +553,11 @@ private
            return msg, attachment 
         end
 
-        msg = "#{escape journal.user.to_s} updated <#{object_url issue}|#{escape issue}>"
+        if msg == ""
+            msg = "#{escape journal.user.to_s} updated <#{object_url issue}|#{escape issue}>"
+
+            attachment[:thumb_url] = get_avatar_url(journal.user.mail)
+        end
 
        mention = ""
 
@@ -579,8 +573,6 @@ private
 
         msg = mention + msg
 
-        #attachment[:pretext] = msg
-        attachment[:thumb_url] = get_avatar_url(journal.user.mail)       
         attachment[:fields]   = fields
 
         return msg, attachment
