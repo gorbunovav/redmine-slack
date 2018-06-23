@@ -360,16 +360,10 @@ private
             bonus = 5               
             bonus = 2 if returns_count > 0
 
-            karmaMsg  = " :shamrock: #{executor_mention}++#{bonus}"
-            
             reviewer  = get_reviewer(issue)                        
-            karmaMsg += " :shamrock: @#{get_slack_username reviewer.login}++" if !reviewer.nil?
-            
+           
             tester      = get_tester(issue)
-            karmaMsg += " :shamrock: @#{get_slack_username tester.login}++"
             
-            msg += karmaMsg            
-
             icon_emoji = ':tada_dongler:'
         end
 
@@ -436,28 +430,21 @@ private
         penalty=""        
         penalty = returns_count if returns_count > 0
 
-        karmaMsg = " :japanese_ogre: #{assigned_user}--#{penalty}"
-
         if issue.status.id == SlackListener::ISSUE_STATUS_FEEDBACK
             icon_emoji         = ':upset_dongler:'
             attachment[:color] = "danger"
                         
             reviewer    = get_reviewer(issue)
-            karmaMsg += " :japanese_ogre: @#{get_slack_username reviewer.login}--" if !reviewer.nil?
 
             if journal.user.id != SlackListener::MANAGER_USER                
                 tester      = get_tester(issue)
-                karmaMsg += " :japanese_ogre: @#{get_slack_username tester.login}--"
                 
                 manager     = get_manager(issue)
-                karmaMsg += " :japanese_ogre: @#{get_slack_username manager.login}--"
             end
         else
             icon_emoji         = ':sad_dongler:'
             attachment[:color] = "warning"
         end
-
-        msg += karmaMsg
 
         #attachment[:pretext] = msg
 
