@@ -339,17 +339,14 @@ private
 
         if progress_event == SlackListener::PROGRESS_EVENT_STORY_READY_FOR_REVIEW 
             msg = "Hey guys, #{escape journal.user.to_s} claims, that this story is ready for Review! :innocent::innocent::innocent:"
-            msg += " :shamrock: @#{get_slack_username journal.user.login}++"
         end
 
         if progress_event == SlackListener::PROGRESS_EVENT_STORY_PASSED_THE_REVIEW 
             msg = "#{executor_mention}, good job! Your story just passed the Review! :thumbsup: Let's test it a little :smirk::smirk::smirk:"
-            msg += " :shamrock: #{executor_mention}++"
         end
 
         if progress_event == SlackListener::PROGRESS_EVENT_STORY_PASSED_TESTING 
             msg = "#{executor_mention}, great, looks like you hid your bugs thoroughly! :ok_hand:"
-            msg += " :shamrock: #{executor_mention}++"
         end
 
         if progress_event == SlackListener::PROGRESS_EVENT_STORY_ACCEPTED 
