@@ -43,7 +43,7 @@ class SlackListener < Redmine::Hook::Listener
     def controller_issues_new_after_save(context={})
         issue = context[:issue]
 
-        return unless SlackListener::ISSUE_HIGH_PRIORITIES.include?(issue.priority.id) #No creation notifications for now        
+        return unless SlackListener::ISSUE_HIGH_PRIORITIES.include?(issue.priority.id) #No creation notifications for now
 
         channel = channel_for_project issue.project
         url = url_for_project issue.project
@@ -52,7 +52,7 @@ class SlackListener < Redmine::Hook::Listener
 
         attachment = prepare_issue_description(issue)
         msg = '@channel: important issue was created!'
-        speak msg, channel, attachment, url
+        speak msg, channel, [attachment], url
 
         return
 
@@ -80,7 +80,7 @@ class SlackListener < Redmine::Hook::Listener
             :short => true
         } if Setting.plugin_redmine_slack[:display_watchers] == 'yes'
 
-        speak msg, channel, attachment, url
+        speak msg, channel, [attachment], url
     end  
 
     def controller_issues_edit_before_save(context={})
@@ -117,34 +117,57 @@ class SlackListener < Redmine::Hook::Listener
 
         return unless channel and url and Setting.plugin_redmine_slack[:post_updates] == '1'
 
+        msg         = ""
+        attachments = []
+        icon_emoji  = nil
+
+
         progress_event = get_progress_event(issue, journal)
 
         if progress_event
             msg, attachment, icon_emoji = prepare_progress_message(issue, journal, progress_event)
-            if !attachment.blank?
-                speak msg, channel, attachment, url, icon_emoji
+        end
+
+        if attachment.blank?
+            msg, attachment, icon_emoji = prepare_return_message(issue, journal)
+        end
+
+        if attachment.blank?
+            msg, attachment, icon_emoji = prepare_assigned_change_message(issue, journal)
+        end        
+
+        if !attachment.blank?
+            attachments.push(attachment)
+        end
+
+        newMsg, attachment = prepare_details_change_message(issue, journal)
+        if !attachment.blank?
+            attachments.push(attachment)
+
+            if msg == "" 
+                msg = newMsg
+            end
+        end
+        
+        newMsg, attachment = prepare_comment_message(issue, journal)
+        if !attachment.blank?
+            attachments.push(attachment)
+
+            if msg == "" 
+                msg = newMsg
             end
         end
 
-        msg, attachment, icon_emoji = prepare_return_message(issue, journal)
-        if !attachment.blank?
-            speak msg, channel, attachment, url, icon_emoji
+        if msg != ""
+            speak msg, channel, attachments, url, icon_emoji
         end
 
-        msg, attachment = prepare_assigned_change_message(issue, journal)
-        if !attachment.blank?
-            speak msg, channel, attachment, url, ':you_dongler:'
-        end
-
-        msg, attachment = prepare_details_change_message(issue, journal)
-        if !attachment.blank?
-            speak msg, channel, attachment, url
-        end
-
+        
         msg, attachment = prepare_priority_change_message(issue, journal)
         if !attachment.blank?
-            speak msg, channel, attachment, url
+            speak msg, channel, [attachment], url
         end
+
 
         if progress_event && progress_event == SlackListener::PROGRESS_EVENT_STORY_READY_FOR_REVIEW
             executor      = get_executor(issue)
@@ -152,12 +175,12 @@ class SlackListener < Redmine::Hook::Listener
 
             msg = build_review_list(issue)
             if !msg.blank?
-                speak msg, executor_mention, {}, url
+                speak msg, executor_mention, [{}], url
             end
 
             msg = build_assigned_list(issue)
             if !msg.blank?
-                speak msg, executor_mention, {}, url
+                speak msg, executor_mention, [{}], url
             end
         end
     end
@@ -188,10 +211,10 @@ class SlackListener < Redmine::Hook::Listener
         attachment[:text] = ll(Setting.default_language, :text_status_changed_by_changeset, "<#{revision_url}|#{escape changeset.comments}>")
         attachment[:fields] = journal.details.map { |d| detail_to_field d }.compact
 
-        speak msg, channel, attachment, url
+        speak msg, channel, [attachment], url
     end
 
-    def speak(msg, channel, attachment={}, url=nil, icon_emoji=nil)
+    def speak(msg, channel, attachments=[], url=nil, icon_emoji=nil)
         url = Setting.plugin_redmine_slack[:slack_url] if not url
         username = Setting.plugin_redmine_slack[:username]
         icon = Setting.plugin_redmine_slack[:icon]
@@ -204,7 +227,7 @@ class SlackListener < Redmine::Hook::Listener
         params[:username] = username if username
         params[:channel] = channel if channel
 
-        params[:attachments] = [attachment] if !attachment.blank?
+        params[:attachments] = attachments if !attachments.blank?
 
         if icon and not icon.blank?
             if icon.start_with? ':'
@@ -255,7 +278,7 @@ private
             return false
         end
 
-        if !is_story(issue) && issue.status.id != SlackListener::ISSUE_STATUS_CLOSED
+        if !is_story(issue) #&& issue.status.id != SlackListener::ISSUE_STATUS_CLOSED
             return false
         end      
 
@@ -295,6 +318,7 @@ private
             :title_link => object_url(issue),
             :text       => issue.description.nil? ? "" : escape(issue.description.delete("\r\n").truncate(230, separator: ' ')),
             :fields     => []
+            :fallback   => escape(issue)
         }
 
         if issue.priority.id != SlackListener::ISSUE_PRIORITY_NORMAL
@@ -351,7 +375,7 @@ private
 
         if progress_event == SlackListener::PROGRESS_EVENT_STORY_ACCEPTED 
             msg = "#{executor_mention}, fantastic!!! Your story was just accepted! :tada::tada::tada: Mission accomplished :sunglasses::sunglasses::sunglasses:"
-            msg += " @channel guys, thumbs up for the good boy!"
+            msg += " @here guys, thumbs up for the good boy!"
             icon_emoji = ':tada_dongler:'
         end
 
@@ -387,7 +411,7 @@ private
         icon       = nil
         icon_emoji = nil
 
-        if is_status_changed?(journal) 
+        if !is_story(issue)
             return msg, attachment, icon_emoji
         end
 
@@ -448,27 +472,18 @@ private
         msg        = ""
         attachment = {}
         icon       = nil
+        icon_emoji = nil
 
         if !is_story(issue)
-            return msg, attachment
+            return msg, attachment, icon_emoji
         end
 
-        if is_status_changed?(journal) 
-            return msg, attachment
-        end       
-        
         if !is_assigned_user_changed?(journal)
-            return msg, attachment
+            return msg, attachment, icon_emoji
         end
 
         if issue.assigned_to == nil
-            return msg, attachment
-        end
-
-        returns_count = get_returns_count(issue)
-
-        if !executor.nil? && executor.id == issue.assigned_to.id && issue.assigned_to.id != journal.user.id && @isReturn
-            return msg, attachment
+            return msg, attachment, icon_emoji
         end
 
         previous_owner = ""
@@ -491,6 +506,44 @@ private
             attachment[:thumb_url] = icon
         end
 
+        return msg, attachment, ':you_dongler:'
+    end
+
+    def prepare_comment_message(issue, journal)
+        msg = ""
+        attachment = {}
+        icon = nil
+
+        if journal.notes.blank? || @silent_update
+           return msg, attachment 
+        end
+
+        
+        msg = "#{escape journal.user.to_s} commented on <#{object_url issue}|#{escape issue}>"
+                
+        mention = ""
+
+        if (!issue.assigned_to.nil? && issue.assigned_to.id != journal.user.id) 
+            mention = "@" + get_slack_username(issue.assigned_to.login) + " "
+        end
+
+        executor = get_executor(issue)
+
+        if (!executor.nil? && executor.id != journal.user.id && (issue.assigned_to.nil? || issue.assigned_to.id != executor.id)) 
+            mention = mention + "@" + get_slack_username(executor.login) + " "
+        end
+
+        msg = mention + msg
+
+        #msg += "#{mentions journal.notes}"
+        comment = convert_usernames_to_slack(journal.notes)
+                        
+        #attachment[:pretext] = msg
+        attachment[:thumb_url] = get_avatar_url(journal.user.mail)
+
+        attachment[:text]     = escape comment
+        attachment[:fallback] = escape comment
+
         return msg, attachment
     end
 
@@ -503,27 +556,16 @@ private
             return msg, attachment
         end
 
-        if is_status_changed?(journal) 
-            return msg, attachment
-        end
-
         #Fields & comments changes
         fields = journal.details.map { |d| detail_to_field d }.compact
 
-        if fields.blank? && (journal.notes.blank? || @silent_update)
+        if fields.blank?
            return msg, attachment 
         end
 
-        if !fields.blank?
-            msg = "#{escape journal.user.to_s} updated <#{object_url issue}|#{escape issue}>"
-        end
+        msg = "#{escape journal.user.to_s} updated <#{object_url issue}|#{escape issue}>"
 
-        if msg == "" && !journal.notes.blank? && !@silent_update
-            msg = "#{escape journal.user.to_s} commented on <#{object_url issue}|#{escape issue}>"
-        end
-
-        
-        mention = ""
+       mention = ""
 
         if (!issue.assigned_to.nil? && issue.assigned_to.id != journal.user.id) 
             mention = "@" + get_slack_username(issue.assigned_to.login) + " "
@@ -537,15 +579,9 @@ private
 
         msg = mention + msg
 
-        #msg += "#{mentions journal.notes}"
-        comment = convert_usernames_to_slack(journal.notes)
-                        
-
         #attachment[:pretext] = msg
-        attachment[:thumb_url] = get_avatar_url(journal.user.mail)
-
-        attachment[:text]    = escape comment if !comment.blank?
-        attachment[:fields]  = fields if !fields.blank?      
+        attachment[:thumb_url] = get_avatar_url(journal.user.mail)       
+        attachment[:fields]   = fields
 
         return msg, attachment
     end
