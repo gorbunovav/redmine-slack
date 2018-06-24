@@ -145,15 +145,15 @@ class SlackListener < Redmine::Hook::Listener
             attachments.push(attachment)
         end
         
-        msg, attachment = prepare_comment_message(issue, journal, msg)
-        if !attachment.blank?
-            attachments.push(attachment)
-        end
-
         if msg != ""
             speak msg, channel, attachments, url, icon_emoji
         end
+        
 
+        msg = prepare_comment_message(issue, journal)
+        if msg != ""
+            speak msg, channel, [], url
+        end
         
         msg, attachment = prepare_priority_change_message(issue, journal)
         if !attachment.blank?
@@ -502,19 +502,13 @@ private
     end
 
     def prepare_comment_message(issue, journal, msg="")
-        attachment = {}
         icon = nil
 
         if journal.notes.blank? || @silent_update
-           return msg, attachment 
+           return msg
         end
 
-        if msg == ""
-            msg = "#{escape journal.user.to_s} commented on <#{object_url issue}|#{escape issue}>"
 
-            attachment[:thumb_url] = get_avatar_url(journal.user.mail)
-        end
-                
         mention = ""
 
         if (!issue.assigned_to.nil? && issue.assigned_to.id != journal.user.id) 
@@ -527,14 +521,18 @@ private
             mention = mention + "@" + get_slack_username(executor.login) + " "
         end
 
-        msg = mention + msg
+
+        if msg == ""
+            msg = "<#{object_url issue}|#{escape issue}>"
+        end       
+
+        msg += "\n\n" + mention + "#{escape journal.user.to_s} commented:"
 
         comment = convert_usernames_to_slack(journal.notes)
-                        
-        attachment[:text]     = escape comment
-        attachment[:fallback] = escape comment
 
-        return msg, attachment
+        msg += "\n>>>" + comment
+
+        return msg
     end
 
     def prepare_details_change_message(issue, journal, msg="")
@@ -772,7 +770,7 @@ private
     def mentions text
         text  = convert_usernames_to_slack text
         names = extract_usernames text
-        names.present? ? "\nTo: @" + names.map(&:downcase).join(', @') : nil        
+        names.present? ? "\nTo: @" + names.map(&:downcase).join(', @') : nil
     end
 
     def convert_usernames_to_slack text
