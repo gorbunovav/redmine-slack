@@ -148,7 +148,7 @@ class SlackListener < Redmine::Hook::Listener
         if msg != ""
             speak msg, channel, attachments, url, icon_emoji
         end
-        
+
 
         msg = prepare_comment_message(issue, journal)
         if msg != ""
@@ -306,8 +306,8 @@ private
 
     def prepare_issue_description(issue)
         attachment = {
-            :title      => escape(issue),
-            :title_link => object_url(issue),
+            #:title      => escape(issue),
+            #:title_link => object_url(issue),
             :text       => issue.description.nil? ? "" : escape(issue.description.delete("\r\n").truncate(230, separator: ' ')),
             :fields     => [],
             :fallback   => escape(issue)
@@ -385,7 +385,7 @@ private
                 msg += " #{assigned_user}, it's your turn now!"
             end
 
-            #attachment[:pretext] = msg
+            msg += "\n\n<#{object_url issue}|#{escape issue}>"
         end
 
         if !icon.nil?
@@ -427,6 +427,7 @@ private
             
         assigned_user = "@" + get_slack_username(issue.assigned_to.login)
         msg = "#{assigned_user} Issue was returned :cry::cry::cry: to you (by #{escape journal.user.to_s})"
+        msg += "\n\n<#{object_url issue}|#{escape issue}>"
         icon = get_avatar_url(issue.assigned_to.mail)
 
         attachment = prepare_issue_description(issue)
@@ -490,6 +491,8 @@ private
             assigned_user = "@" + get_slack_username(issue.assigned_to.login)
             msg  = "#{previous_owner}Issue was transferred to #{assigned_user} (by #{escape journal.user.to_s})"
         end
+
+        msg += "\n\n<#{object_url issue}|#{escape issue}>"
 
         attachment = prepare_issue_description(issue)
         #attachment[:pretext] = msg
@@ -589,6 +592,7 @@ private
         
         if !issueWasImportant && issueIsImportantNow
             msg = '@channel: issue priority has been raised!'
+            msg += "\n\n<#{object_url issue}|#{escape issue}>"
             attachment = prepare_issue_description(issue)
         end
 
