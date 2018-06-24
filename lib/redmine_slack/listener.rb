@@ -559,7 +559,7 @@ private
 
         comment = convert_usernames_to_slack(journal.notes)
 
-        msg += "\n>>>" + comment
+        msg += "\n>>>\n" + comment
 
         return msg
     end
