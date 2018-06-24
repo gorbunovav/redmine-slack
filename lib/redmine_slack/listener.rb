@@ -310,8 +310,7 @@ private
             #:title      => escape(issue),
             #:title_link => object_url(issue),
             :text       => issue.description.nil? ? "" : escape(issue.description.delete("\r\n").truncate(230, separator: ' ')),
-            :fields     => [],
-            :fallback   => escape(issue)
+            :fields     => [],            
         }
 
         if issue.priority.id != SlackListener::ISSUE_PRIORITY_NORMAL
@@ -540,7 +539,6 @@ private
     end
 
     def prepare_details_change_message(issue, journal, msg="")
-        msg = ""
         attachment = {}
         icon = nil
 
