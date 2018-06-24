@@ -130,7 +130,11 @@ class SlackListener < Redmine::Hook::Listener
         end
 
         if msg == ""
-            msg, attachment, icon_emoji = prepare_return_message(issue, journal)
+            msg, attachment, icon_emoji, reviewerPM = prepare_return_message(issue, journal)
+
+            if !reviewerPM.blank? 
+                speak reviewerPM[:text], reviewerPM[:channel], reviewerPM[:attachments], url
+            end
         end
 
         if msg == ""
@@ -402,38 +406,35 @@ private
         attachment = {}
         icon       = nil
         icon_emoji = nil
+        reviewerPM = {}
 
         if !is_story(issue)
-            return msg, attachment, icon_emoji
+            return msg, attachment, icon_emoji, reviewerPM
         end
 
         if !is_assigned_user_changed?(journal)
-            return msg, attachment, icon_emoji
+            return msg, attachment, icon_emoji, reviewerPM
         end
 
         if issue.assigned_to == nil
-            return msg, attachment, icon_emoji
+            return msg, attachment, icon_emoji, reviewerPM
         end
 
         if executor.nil? || (executor.id != issue.assigned_to.id || issue.assigned_to.id == journal.user.id)
-            return msg, attachment, icon_emoji
+            return msg, attachment, icon_emoji, reviewerPM
         end
 
         returns_count = get_returns_count(issue)
 
         if !@isReturn
-            return msg, attachment, icon_emoji
+            return msg, attachment, icon_emoji, reviewerPM
         end
             
         assigned_user = "@" + get_slack_username(issue.assigned_to.login)
         msg = "#{assigned_user} Issue was returned :cry::cry::cry: to you (by #{escape journal.user.to_s})"
-        msg += "\n\n<#{object_url issue}|#{escape issue}>"
         icon = get_avatar_url(issue.assigned_to.mail)
 
         attachment = prepare_issue_description(issue)
-
-        penalty=""        
-        penalty = returns_count if returns_count > 0
 
         if issue.status.id == SlackListener::ISSUE_STATUS_FEEDBACK
             icon_emoji         = ':upset_dongler:'
@@ -441,10 +442,33 @@ private
                         
             reviewer    = get_reviewer(issue)
 
-            if journal.user.id != SlackListener::MANAGER_USER                
-                tester      = get_tester(issue)
-                
+            if journal.user.id != SlackListener::MANAGER_USER
+                tester      = get_tester(issue)                
                 manager     = get_manager(issue)
+
+                if !reviewer.nil?
+                    msg += " @" + get_slack_username(reviewer.login)
+                end
+
+                if !tester.nil?
+                    msg += " @" + get_slack_username(tester.login)
+                end
+
+                if !manager.nil?
+                    msg += " @" + get_slack_username(manager.login)
+                end
+            else 
+                if !reviewer.nil?
+                    reviewerMsg = "You may want to check comments to the issue, which you were reviewing:"
+                    reviewerMsg += "\n\n<#{object_url issue}|#{escape issue}>"
+                    reviewerAttachment = prepare_issue_description(issue)
+
+                    reviewerPM = {
+                        :text => reviewerMsg,
+                        :attachments => [reviewerAttachment],
+                        :channel => "@" + get_slack_username(reviewer.login)
+                    }
+                end
             end
         else
             icon_emoji         = ':sad_dongler:'
@@ -457,7 +481,9 @@ private
             attachment[:thumb_url] = icon
         end
 
-        return msg, attachment, icon_emoji
+        msg += "\n\n<#{object_url issue}|#{escape issue}>"
+
+        return msg, attachment, icon_emoji, reviewerPM
     end
 
     def prepare_assigned_change_message(issue, journal)
