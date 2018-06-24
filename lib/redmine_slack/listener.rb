@@ -52,6 +52,7 @@ class SlackListener < Redmine::Hook::Listener
 
         attachment = prepare_issue_description(issue)
         msg = '@channel: important issue was created!'
+        msg += "\n\n<#{object_url issue}|#{escape issue}>"
         speak msg, channel, [attachment], url
 
         return
@@ -128,11 +129,11 @@ class SlackListener < Redmine::Hook::Listener
             msg, attachment, icon_emoji = prepare_progress_message(issue, journal, progress_event)
         end
 
-        if attachment.blank?
+        if msg == ""
             msg, attachment, icon_emoji = prepare_return_message(issue, journal)
         end
 
-        if attachment.blank?
+        if msg == ""
             msg, attachment, icon_emoji = prepare_assigned_change_message(issue, journal)
         end        
 
