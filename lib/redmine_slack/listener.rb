@@ -538,26 +538,36 @@ private
         end
 
 
+        comment = convert_usernames_to_slack(journal.notes)
+        
+        comment_mentions = extract_usernames comment
+
+
         mention = ""
 
-        if (!issue.assigned_to.nil? && issue.assigned_to.id != journal.user.id) 
-            mention = "@" + get_slack_username(issue.assigned_to.login) + " "
+        if (!issue.assigned_to.nil? && issue.assigned_to.id != journal.user.id)             
+            slack_name = get_slack_username(issue.assigned_to.login)
+            if !comment_mentions.include? slack_name
+                mention = "@" + slack_name + " "
+            end 
+            
         end
 
         executor = get_executor(issue)
 
         if (!executor.nil? && executor.id != journal.user.id && (issue.assigned_to.nil? || issue.assigned_to.id != executor.id)) 
-            mention = mention + "@" + get_slack_username(executor.login) + " "
+            slack_name = get_slack_username(executor.login)
+            if !comment_mentions.include? slack_name
+                mention = "@" + slack_name + " "
+            end             
         end
-
+        
 
         if msg == ""
             msg = "<#{object_url issue}|#{escape issue}>"
         end       
 
         msg += "\n\n" + mention + "#{escape journal.user.to_s} commented:"
-
-        comment = convert_usernames_to_slack(journal.notes)
 
         msg += "\n>>>\n" + comment
 
