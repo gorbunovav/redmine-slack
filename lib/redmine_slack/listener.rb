@@ -122,6 +122,7 @@ class SlackListener < Redmine::Hook::Listener
         attachments = []
         icon_emoji  = nil
 
+        @users_map = prepare_users_map
 
         progress_event = get_progress_event(issue, journal)
 
