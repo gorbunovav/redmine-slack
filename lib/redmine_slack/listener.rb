@@ -168,7 +168,7 @@ class SlackListener < Redmine::Hook::Listener
 
         if progress_event && progress_event == SlackListener::PROGRESS_EVENT_STORY_READY_FOR_REVIEW
             executor      = get_executor(issue)
-            executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login)
+            executor_mention = executor.nil? ? "" : mention_user(executor.login)
 
             msg = build_review_list(issue)
             if !msg.blank?
@@ -243,22 +243,26 @@ class SlackListener < Redmine::Hook::Listener
     end
 
 private
+    def prepare_users_map
+        users = User.sorted.active.preload(:preference)
+
+        users_map = {}
+
+        users.each do |u|
+          slack_username = u.rslack_preference[:username]
+          unless (slack_username == "")
+            users_map[u.login] = slack_username
+          else 
+            users_map[u.login] = u.login.downcase
+          end
+        end
+
+        return users_map
+    end
+
     def get_users_map
         if @users_map.nil?
-            users = User.sorted.active.preload(:preference)
-
-            users_map = {}
-
-            users.each do |u|
-              slack_username = u.rslack_preference[:username]
-              unless (slack_username == "")
-                users_map[u.login] = slack_username
-              else 
-                users_map[u.login] = u.login.downcase
-              end
-            end
-
-            @users_map = users_map
+            @users_map = prepare_users_map
         end
 
         return @users_map
@@ -339,7 +343,7 @@ private
 
     def prepare_progress_message(issue, journal, progress_event)
         executor      = get_executor(issue)
-        executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login)
+        executor_mention = executor.nil? ? "" : mention_user(executor.login)
         msg = ""
         attachment = {}
         icon = nil
@@ -385,7 +389,7 @@ private
             attachment[:color] = "good"
             
             if (issue.assigned_to != nil && issue.assigned_to.id != journal.user.id) 
-                assigned_user = "@" + get_slack_username(issue.assigned_to.login)
+                assigned_user = mention_user(issue.assigned_to.login)
                 msg += " #{assigned_user}, it's your turn now!"
             end
 
@@ -401,7 +405,7 @@ private
 
     def prepare_return_message(issue, journal)
         executor      = get_executor(issue)
-        executor_mention = executor.nil? ? "" : '@' + get_slack_username(executor.login)
+        executor_mention = executor.nil? ? "" : mention_user(executor.login)
         msg        = ""
         attachment = {}
         icon       = nil
@@ -430,7 +434,7 @@ private
             return msg, attachment, icon_emoji, reviewerPM
         end
             
-        assigned_user = "@" + get_slack_username(issue.assigned_to.login)
+        assigned_user = mention_user(issue.assigned_to.login)
         msg = "#{assigned_user} Issue was returned :cry::cry::cry: to you (by #{escape journal.user.to_s})"
         icon = get_avatar_url(issue.assigned_to.mail)
 
@@ -447,15 +451,15 @@ private
                 manager     = get_manager(issue)
 
                 if !reviewer.nil?
-                    msg += " @" + get_slack_username(reviewer.login)
+                    msg += " " + mention_user(reviewer.login)
                 end
 
                 if !tester.nil?
-                    msg += " @" + get_slack_username(tester.login)
+                    msg += " " + mention_user(tester.login)
                 end
 
                 if !manager.nil?
-                    msg += " @" + get_slack_username(manager.login)
+                    msg += " " + mention_user(manager.login)
                 end
             else 
                 if !reviewer.nil?
@@ -466,7 +470,7 @@ private
                     reviewerPM = {
                         :text => reviewerMsg,
                         :attachments => [reviewerAttachment],
-                        :channel => "@" + get_slack_username(reviewer.login)
+                        :channel => get_slack_username(reviewer.login)
                     }
                 end
             end
@@ -507,14 +511,14 @@ private
 
         previous_owner = ""
         if !@previous_assigned_to.nil? && @previous_assigned_to.id != journal.user.id
-            previous_owner = "@" + get_slack_username(@previous_assigned_to.login) + ", "
+            previous_owner = mention_user(@previous_assigned_to.login) + ", "
         end
 
         if (issue.assigned_to.id == journal.user.id)            
             msg  = "#{previous_owner}Story was captured by #{issue.assigned_to.to_s}"
             #icon = get_avatar_url(issue.assigned_to.mail)
         else
-            assigned_user = "@" + get_slack_username(issue.assigned_to.login)
+            assigned_user = mention_user(issue.assigned_to.login)
             msg  = "#{previous_owner}Issue was transferred to #{assigned_user} (by #{escape journal.user.to_s})"
         end
 
@@ -548,7 +552,7 @@ private
         if (!issue.assigned_to.nil? && issue.assigned_to.id != journal.user.id)             
             slack_name = get_slack_username(issue.assigned_to.login)
             if !comment_mentions.include? slack_name
-                mention = "@" + slack_name + " "
+                mention =  mention_user(issue.assigned_to.login) + " "
             end 
             
         end
@@ -558,7 +562,7 @@ private
         if (!executor.nil? && executor.id != journal.user.id && (issue.assigned_to.nil? || issue.assigned_to.id != executor.id)) 
             slack_name = get_slack_username(executor.login)
             if !comment_mentions.include? slack_name
-                mention = "@" + slack_name + " "
+                mention = mention_user(executor.login) + " "
             end             
         end
         
@@ -598,13 +602,13 @@ private
        mention = ""
 
         if (!issue.assigned_to.nil? && issue.assigned_to.id != journal.user.id) 
-            mention = "@" + get_slack_username(issue.assigned_to.login) + " "
+            mention = mention_user(issue.assigned_to.login) + " "
         end
 
         executor      = get_executor(issue)
 
         if (!executor.nil? && executor.id != journal.user.id && (issue.assigned_to.nil? || issue.assigned_to.id != executor.id)) 
-            mention = mention + "@" + get_slack_username(executor.login) + " "
+            mention = mention + mention_user(executor.login) + " "
         end
 
         msg = mention + msg
@@ -632,6 +636,12 @@ private
         end
 
         return msg, attachment
+    end
+
+    def mention_user(username)
+        slack_name = get_slack_username(username)
+
+        return "<@#{slack_name}>"
     end
 
     def get_slack_username(username) 
@@ -806,21 +816,17 @@ private
         result
     end
 
-    def mentions text
-        text  = convert_usernames_to_slack text
-        names = extract_usernames text
-        names.present? ? "\nTo: @" + names.map(&:downcase).join(', @') : nil
-    end
+    #def mentions text
+    #    text  = convert_usernames_to_slack text
+    #    names = extract_usernames text
+    #    names.present? ? "\nTo: @" + names.map(&:downcase).join(', @') : nil
+    #end
 
     def convert_usernames_to_slack text
         users_map = get_users_map()
 
-        text = text.gsub(/(?<=@)[a-zA-Z0-9][a-zA-Z0-9_\-]*/) { |username| 
-            if users_map.key?(username)
-                users_map[username]
-            else 
-                username.downcase
-            end
+        text = text.gsub(/@([a-zA-Z0-9][a-zA-Z0-9_\-]*)/) { |username| 
+            mention_user(Regexp.last_match[1])
         }
 
         text
