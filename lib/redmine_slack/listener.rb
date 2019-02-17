@@ -376,7 +376,6 @@ private
 
         if progress_event == SlackListener::PROGRESS_EVENT_STORY_ACCEPTED 
             msg = "#{executor_mention}, fantastic!!! Your story was just accepted! :tada::tada::tada: Mission accomplished :sunglasses::sunglasses::sunglasses:"
-            msg += " @here guys, thumbs up for the good boy!"
             icon_emoji = ':tada_dongler:'
         end
 
