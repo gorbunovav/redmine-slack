@@ -567,7 +567,7 @@ private
         if (!issue.assigned_to.nil? && issue.assigned_to.id != journal.user.id)             
             slack_name = get_slack_username(issue.assigned_to.login)
             if !comment_mentions.include? slack_name
-                mention =  mention_user(issue.assigned_to.login) + " "
+                mention +=  mention_user(issue.assigned_to.login) + " "
             end 
             
         end
@@ -577,7 +577,7 @@ private
         if (!executor.nil? && executor.id != journal.user.id && (issue.assigned_to.nil? || issue.assigned_to.id != executor.id)) 
             slack_name = get_slack_username(executor.login)
             if !comment_mentions.include? slack_name
-                mention = mention_user(executor.login) + " "
+                mention += mention_user(executor.login) + " "
             end             
         end
         
@@ -617,13 +617,13 @@ private
        mention = ""
 
         if (!issue.assigned_to.nil? && issue.assigned_to.id != journal.user.id) 
-            mention = mention_user(issue.assigned_to.login) + " "
+            mention += mention_user(issue.assigned_to.login) + " "
         end
 
         executor      = get_executor(issue)
 
         if (!executor.nil? && executor.id != journal.user.id && (issue.assigned_to.nil? || issue.assigned_to.id != executor.id)) 
-            mention = mention + mention_user(executor.login) + " "
+            mention += mention + mention_user(executor.login) + " "
         end
 
         msg = mention + msg
