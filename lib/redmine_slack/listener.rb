@@ -113,7 +113,15 @@ class SlackListener < Redmine::Hook::Listener
         issue = context[:issue]
         journal = context[:journal]    
 
-        channel = channel_for_project issue.project
+        if (
+            is_client(journal.user, issue.project) || 
+            (issue.assigned_to != nil && is_client(issue.assigned_to, issue.project)
+        )             
+            channel = support_channel_for_project issue.project
+        else 
+            channel = channel_for_project issue.project
+        end
+        
         url = url_for_project issue.project
 
         return unless channel and url and Setting.plugin_redmine_slack[:post_updates] == '1'
@@ -312,6 +320,12 @@ private
         end
 
         return false
+    end
+
+    def is_client(user, project)
+        roles = user.roles_for_project(project).collect(&:id)
+
+        return roles.include? 6 # Client representative
     end
 
     def prepare_issue_description(issue)
@@ -774,6 +788,24 @@ private
             (proj.custom_value_for(cf).value rescue nil),
             (channel_for_project proj.parent),
             Setting.plugin_redmine_slack[:channel],
+        ].find{|v| v.present?}
+
+        if val.to_s.starts_with? '#'
+            val
+        else
+            nil
+        end
+    end
+
+    def support_channel_for_project(proj)
+        return nil if proj.blank?
+
+        cf = ProjectCustomField.find_by_name("Slack Support Channel")
+
+        val = [
+            (proj.custom_value_for(cf).value rescue nil),
+            (support_channel_for_project proj.parent),
+            (channel_for_project proj),            
         ].find{|v| v.present?}
 
         if val.to_s.starts_with? '#'
