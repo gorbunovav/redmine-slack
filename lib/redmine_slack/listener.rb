@@ -118,9 +118,9 @@ class SlackListener < Redmine::Hook::Listener
             (issue.assigned_to != nil && is_client(issue.assigned_to, issue.project)) ||
             (!@previous_assigned_to.nil? && is_client(@previous_assigned_to, issue.project))
         )             
-            channel = support_channel_for_project issue.project
+            channel = support_channel_for_project(issue.project)
         else 
-            channel = channel_for_project issue.project
+            channel = channel_for_project(issue.project)
         end
         
         url = url_for_project issue.project
@@ -134,6 +134,10 @@ class SlackListener < Redmine::Hook::Listener
         @users_map = prepare_users_map
 
         progress_event = get_progress_event(issue, journal)
+
+        if progress_event == SlackListener::PROGRESS_EVENT_STORY_ACCEPTED 
+            channel = channel_for_project(issue.project)
+        end
 
         if progress_event
             msg, attachment, icon_emoji = prepare_progress_message(issue, journal, progress_event)
