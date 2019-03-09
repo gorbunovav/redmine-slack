@@ -165,7 +165,7 @@ class SlackListener < Redmine::Hook::Listener
         end
 
 
-        msg = prepare_comment_message(issue, journal)
+        msg, channel = prepare_comment_message(issue, journal, channel)
         if msg != ""
             speak msg, channel, [], url
         end
@@ -549,17 +549,29 @@ private
         return msg, attachment, ':you_dongler:'
     end
 
-    def prepare_comment_message(issue, journal, msg="")
+    def prepare_comment_message(issue, journal, channel, msg="")
         icon = nil
 
         if journal.notes.blank? || @silent_update
-           return msg
+           return msg, channel
+        end
+
+
+        redmine_mentions = extract_usernames(journal.notes)
+
+        redmine_mentions.each do |user_login|
+            user = User.find_by_login(user_login)
+
+            if is_client(user, issue.project)
+                channel = support_channel_for_project(issue.project)
+                break
+            end
         end
 
 
         comment = convert_usernames_to_slack(journal.notes)
         
-        comment_mentions = extract_usernames comment
+        comment_mentions = extract_usernames(comment)
 
 
         mention = ""
@@ -590,7 +602,7 @@ private
 
         msg += "\n>>>\n" + comment
 
-        return msg
+        return msg, channel
     end
 
     def prepare_details_change_message(issue, journal, msg="")
