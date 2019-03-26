@@ -115,7 +115,7 @@ class SlackListener < Redmine::Hook::Listener
 
         if (
             is_client(journal.user, issue.project) || 
-            (issue.assigned_to != nil && is_client(issue.assigned_to, issue.project)) ||
+            (!issue.assigned_to.nil? && is_client(issue.assigned_to, issue.project)) ||
             (!@previous_assigned_to.nil? && is_client(@previous_assigned_to, issue.project))
         )             
             channel = support_channel_for_project(issue.project)
@@ -566,7 +566,7 @@ private
         redmine_mentions.each do |user_login|
             user = User.find_by_login(user_login)
 
-            if is_client(user, issue.project)
+            if !user.nil? && is_client(user, issue.project)
                 channel = support_channel_for_project(issue.project)
                 break
             end
